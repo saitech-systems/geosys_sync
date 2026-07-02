@@ -126,3 +126,26 @@ class GeosysClient:
     def me(self):
         resp = self._request('GET', '/auth/me')
         return SessionInfo.from_json(resp.json())
+
+    # -- projects -----------------------------------------------------------
+
+    def list_projects(self):
+        resp = self._request('GET', '/projects')
+        return [Project.from_json(p) for p in resp.json().get('projects', [])]
+
+    def get_project(self, project_id):
+        resp = self._request('GET', '/projects/{}'.format(project_id))
+        return Project.from_json(resp.json())
+
+    def create_project(self, name, description=''):
+        resp = self._request('POST', '/projects',
+                             json={'name': name, 'description': description})
+        return Project.from_json(resp.json())
+
+    def submit_project_request(self, name):
+        resp = self._request('POST', '/project-requests', json={'name': name})
+        return resp.json()
+
+    def list_project_requests(self):
+        resp = self._request('GET', '/project-requests')
+        return resp.json().get('project_requests', [])
