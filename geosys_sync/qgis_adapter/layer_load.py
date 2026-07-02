@@ -19,6 +19,8 @@ def load_pulled_dataset(entry, path, server_base, project_id):
     provider = 'ogr' if entry.kind == 'vector' else 'gdal'
     if existing is not None:
         existing.setDataSource(path, entry.name, provider)
+        if not existing.isValid():
+            raise RuntimeError('Could not open {}'.format(path))
         layer = existing
     else:
         if entry.kind == 'vector':

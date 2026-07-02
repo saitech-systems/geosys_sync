@@ -60,3 +60,19 @@ def test_load_pulled_dataset_new_and_replace(qgis_app, tmp_path):
     again = layer_load.load_pulled_dataset(entry, dest, 'https://s.test', 7)
     assert again is loaded
     QgsProject.instance().removeAllMapLayers()
+
+
+def test_load_pulled_dataset_replace_bad_file_raises(qgis_app, tmp_path):
+    dest = str(tmp_path / 'pulled.gpkg')
+    layer_export.export_vector_gpkg(point_layer(qgis_app), dest)
+    entry = ManifestEntry(id=881, name='pulled', kind='vector', sync_etag='e3')
+    loaded = layer_load.load_pulled_dataset(entry, dest, 'https://s.test', 7)
+    assert loaded.isValid()
+    try:
+        # re-pull pointing at a nonexistent file must fail loudly, not leave
+        # the layer silently invalid with fresh sync props
+        with pytest.raises(RuntimeError):
+            layer_load.load_pulled_dataset(
+                entry, str(tmp_path / 'missing.gpkg'), 'https://s.test', 7)
+    finally:
+        QgsProject.instance().removeAllMapLayers()
