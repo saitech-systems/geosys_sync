@@ -12,7 +12,8 @@ import os
 import requests
 
 from geosys_sync.core.errors import (
-    ApiError, AuthRequiredError, NetworkError, error_from_response,
+    ApiError, AuthRequiredError, NetworkError, RasterProcessingError,
+    error_from_response,
 )
 from geosys_sync.core.models import (
     CogUrl, ManifestEntry, Project, SessionInfo, TokenBundle,
@@ -149,3 +150,40 @@ class GeosysClient:
     def list_project_requests(self):
         resp = self._request('GET', '/project-requests')
         return resp.json().get('project_requests', [])
+
+    # -- datasets: manifest + downloads --------------------------------------
+
+    def get_manifest(self, project_id):
+        resp = self._request('GET', '/projects/{}/datasets'.format(project_id))
+        return [ManifestEntry.from_json(d)
+                for d in resp.json().get('datasets', [])]
+
+    def download_vector(self, dataset_id, dest_path, progress=None):
+        resp = self._request('GET', '/datasets/{}/download'.format(dataset_id),
+                             stream=True)
+        _write_stream(resp, dest_path, progress)
+        return resp.headers.get('X-Geosys-Sync-Etag', '')
+
+    def get_cog_url(self, dataset_id, variant='greyscale'):
+        resp = self._request('GET', '/datasets/{}/cog-url'.format(dataset_id),
+                             params={'variant': variant})
+        return CogUrl.from_json(resp.json())
+
+    def download_file(self, url, dest_path, progress=None):
+        """Fetch an absolute (presigned S3) URL. No Authorization header -
+        the presigned signature IS the credential."""
+        try:
+            resp = self._http.get(url, stream=True, timeout=self.timeout)
+        except requests.RequestException as e:
+            raise NetworkError('NETWORK_ERROR',
+                               'Download failed: {}'.format(e)) from e
+        if resp.status_code >= 400:
+            raise ApiError('DOWNLOAD_FAILED',
+                           'HTTP {} fetching file'.format(resp.status_code),
+                           status=resp.status_code)
+        _write_stream(resp, dest_path, progress)
+        return dest_path
+
+    def raster_status(self, dataset_id):
+        resp = self._request('GET', '/datasets/{}/status'.format(dataset_id))
+        return resp.json()
