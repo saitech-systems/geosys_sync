@@ -187,3 +187,53 @@ class GeosysClient:
     def raster_status(self, dataset_id):
         resp = self._request('GET', '/datasets/{}/status'.format(dataset_id))
         return resp.json()
+
+    # -- datasets: uploads ----------------------------------------------------
+
+    def create_dataset(self, project_id, name, kind, file_path,
+                       epsg=None, style=None):
+        fields = {'name': name, 'kind': kind}
+        if epsg is not None:
+            fields['epsg'] = str(epsg)
+        if style:
+            fields['style'] = json.dumps(style)
+        resp = self._upload('POST', '/projects/{}/datasets'.format(project_id),
+                            file_path, fields)
+        return ManifestEntry.from_json(resp.json())
+
+    def overwrite_dataset(self, dataset_id, file_path, kind,
+                          epsg=None, style=None, if_match=None):
+        fields = {}
+        if kind == 'raster' and epsg is not None:
+            fields['epsg'] = str(epsg)
+        if style:
+            fields['style'] = json.dumps(style)
+        resp = self._upload('PUT', '/datasets/{}/data'.format(dataset_id),
+                            file_path, fields, if_match=if_match)
+        return ManifestEntry.from_json(resp.json())
+
+    def update_style(self, dataset_id, wire):
+        resp = self._request('PUT', '/datasets/{}/style'.format(dataset_id),
+                             json=wire)
+        return ManifestEntry.from_json(resp.json())
+
+    def _upload(self, method, path, file_path, fields, if_match=None):
+        """Multipart upload with a single refresh-and-retry on TOKEN_EXPIRED.
+        The retry reopens the file: a consumed handle cannot be re-sent, so
+        _request's generic retry is disabled here (_retried=True)."""
+        headers = {'If-Match': if_match} if if_match else None
+        last_err = None
+        for attempt in (0, 1):
+            with open(file_path, 'rb') as fh:
+                files = {'file': (os.path.basename(file_path), fh,
+                                  'application/octet-stream')}
+                try:
+                    return self._request(method, path, files=files, data=fields,
+                                         headers=headers, _retried=True)
+                except ApiError as e:
+                    if attempt == 0 and e.code == 'TOKEN_EXPIRED':
+                        self.refresh_tokens()
+                        last_err = e
+                        continue
+                    raise
+        raise last_err
