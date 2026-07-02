@@ -1,0 +1,15 @@
+[general]
+name=GeosysAI Sync
+qgisMinimumVersion=3.28
+description=Sync vector and raster layers between QGIS and a GeosysAI project (pull with styling, push create-or-overwrite).
+version=0.1.0
+author=SAITECH Systems
+email=yash@saitech-systems.com
+about=Directional sync against the GeosysAI /api/qgis/v1 API. Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with styling; push QGIS layers back, creating new datasets or overwriting previously synced ones.
+tracker=https://github.com/saitech-systems/sisl-geo-server/issues
+repository=https://github.com/saitech-systems/sisl-geo-server
+tags=sync,geopackage,cog,raster,vector
+category=Web
+icon=
+experimental=True
+deprecated=False
