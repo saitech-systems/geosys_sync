@@ -6,10 +6,11 @@ touched in the finished-callbacks, which Qt runs on the main thread.
 """
 import logging
 import os
+import shutil
 import tempfile
 
 from qgis.core import QgsApplication, QgsProject, QgsTask
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QProgressBar, QPushButton, QTableWidget,
@@ -46,6 +47,8 @@ def _pull_worker(task, client, actions):
                 client.download_file(cog.url, action.target_path)
                 etag = cog.sync_etag
             results.append({'action': action, 'etag': etag, 'error': None})
+        except AuthRequiredError:
+            raise  # abort the whole task -> finished(exception) -> re-login
         except ApiError as e:
             results.append({'action': action, 'etag': None, 'error': e})
         task.setProgress(100.0 * (i + 1) / len(actions))
@@ -69,6 +72,8 @@ def _push_worker(task, client, jobs):
                     job['project_id'], action.name, action.kind,
                     job['file_path'], epsg=job['epsg'], style=job['style'])
             results.append({'action': action, 'entry': entry, 'error': None})
+        except AuthRequiredError:
+            raise  # abort the whole task -> finished(exception) -> re-login
         except ApiError as e:
             results.append({'action': action, 'entry': None, 'error': e})
         task.setProgress(100.0 * (i + 1) / len(jobs))
@@ -76,6 +81,11 @@ def _push_worker(task, client, jobs):
 
 
 class SyncDialog(QDialog):
+
+    # Token rotations can fire on the QgsTask background thread (the client
+    # transparently refreshes mid-transfer); emitting this signal queues the
+    # QgsSettings write onto the main thread.
+    _tokensRotated = pyqtSignal(object)
 
     def __init__(self, iface, parent=None):
         super().__init__(parent)
@@ -86,8 +96,10 @@ class SyncDialog(QDialog):
         self.projects = []
         self.manifest = []
         self._task = None
+        self._remember = False  # explicit stay-logged-in opt-in
         self.setWindowTitle('GeosysAI Sync')
         self.resize(720, 520)
+        self._tokensRotated.connect(self._persist_tokens)
         self._build_ui()
         self._try_resume()
 
@@ -189,10 +201,14 @@ class SyncDialog(QDialog):
                             on_tokens_changed=self._tokens_changed)
 
     def _tokens_changed(self, bundle):
-        remembered = self.settings.load().get('refresh_token')
+        # May run on a QgsTask worker thread - do NOT touch QgsSettings here.
+        self._tokensRotated.emit(bundle)
+
+    def _persist_tokens(self, bundle):
+        """Main-thread slot: persist rotated tokens per the user's opt-in."""
         if bundle is None:
             self.settings.save_refresh_token(None)
-        elif remembered:  # only persist when the user opted in at login
+        elif self._remember:  # only persist when the user opted in at login
             self.settings.save_refresh_token(bundle.refresh_token)
 
     def _try_resume(self):
@@ -200,9 +216,11 @@ class SyncDialog(QDialog):
         if not (saved.get('server_base') and saved.get('refresh_token')):
             return
         client = self._make_client(saved['server_base'])
+        self._remember = True  # a saved token means the user opted in before
         try:
             info = client.resume(saved['refresh_token'])
         except ApiError:
+            self._remember = False
             self.settings.save_refresh_token(None)
             return
         self.client = client
@@ -210,7 +228,8 @@ class SyncDialog(QDialog):
 
     def _login_flow(self):
         if self.client and self.client.tokens:
-            self.client.logout()
+            self._remember = False
+            self.client.logout()  # emits None -> _persist_tokens clears
             self.client = None
             self.session_info = None
             self.conn_label.setText('Not connected')
@@ -226,14 +245,15 @@ class SyncDialog(QDialog):
                 dlg.show_error('Server URL must start with http(s)://')
                 continue
             client = self._make_client(server)
-            try:
+            self._remember = remember  # before login(): its token emission
+            try:                       # already persists via _persist_tokens
                 info = client.login(identifier, password)
             except ApiError as e:
                 dlg.show_error(e.message)
                 continue
             self.settings.save_connection(server, identifier)
-            self.settings.save_refresh_token(
-                client.tokens.refresh_token if remember else None)
+            if not remember:  # drop any token remembered by a prior login
+                self.settings.save_refresh_token(None)
             self.client = client
             self._connected(info)
             return
@@ -357,10 +377,11 @@ class SyncDialog(QDialog):
         os.makedirs(self.dest_edit.text() or self._default_dest_dir(),
                     exist_ok=True)
         pid = self._current_project_id()
-        server = self.client.base_url
+        client = self.client  # pin: a mid-task logout must not swap clients
+        server = client.base_url
         self._start_task(
             'GeosysAI pull',
-            lambda task: _pull_worker(task, self.client, actions),
+            lambda task, c=client: _pull_worker(task, c, actions),
             lambda results: self._pull_finished(results, server, pid))
 
     def _pull_finished(self, results, server, project_id):
@@ -396,13 +417,15 @@ class SyncDialog(QDialog):
         pid = self._current_project_id()
         project = QgsProject.instance()
         jobs = []
-        export_dir = tempfile.mkdtemp(prefix='geosys_push_')
+        export_dir = None  # created lazily: raster-only pushes need no exports
         for action in actions:  # MAIN THREAD: exports + style extraction
             layer = project.mapLayer(action.layer_id)
             if layer is None:
                 continue
             style, _warnings = style_extract.extract_wire(layer)
             if action.kind == 'vector':
+                if export_dir is None:
+                    export_dir = tempfile.mkdtemp(prefix='geosys_push_')
                 file_path = layer_export.export_vector_gpkg(
                     layer, os.path.join(export_dir,
                                         sync_plan.sanitize_filename(action.name) + '.gpkg'))
@@ -412,15 +435,21 @@ class SyncDialog(QDialog):
                          'file_path': file_path, 'style': style,
                          'epsg': layer_export.layer_epsg(layer)})
         if not jobs:
+            if export_dir:
+                shutil.rmtree(export_dir, ignore_errors=True)
             self.status_label.setText('Selected layers are no longer in the project.')
             return
-        server = self.client.base_url
+        client = self.client  # pin: a mid-task logout must not swap clients
+        server = client.base_url
         self._start_task(
             'GeosysAI push',
-            lambda task: _push_worker(task, self.client, jobs),
-            lambda results: self._push_finished(results, server, pid))
+            lambda task, c=client: _push_worker(task, c, jobs),
+            lambda results: self._push_finished(results, server, pid,
+                                                export_dir))
 
-    def _push_finished(self, results, server, project_id):
+    def _push_finished(self, results, server, project_id, export_dir=None):
+        if export_dir:  # uploads are done; drop the temp GPKG exports
+            shutil.rmtree(export_dir, ignore_errors=True)
         project = QgsProject.instance()
         ok, failed = 0, []
         for r in results:
@@ -459,14 +488,16 @@ class SyncDialog(QDialog):
             return
         self.progress.setVisible(True)
         self.progress.setValue(0)
-        self.pull_btn.setEnabled(False)
-        self.push_btn.setEnabled(False)
+        for widget in (self.pull_btn, self.push_btn, self.login_btn,
+                       self.refresh_btn, self.project_combo):
+            widget.setEnabled(False)
 
         def finished(exception, result=None):
             self._task = None
             self.progress.setVisible(False)
-            self.pull_btn.setEnabled(True)
-            self.push_btn.setEnabled(True)
+            for widget in (self.pull_btn, self.push_btn, self.login_btn,
+                           self.refresh_btn, self.project_combo):
+                widget.setEnabled(True)
             if exception is not None:
                 self._show_error(exception)
                 return
