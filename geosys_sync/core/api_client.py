@@ -12,8 +12,7 @@ import os
 import requests
 
 from geosys_sync.core.errors import (
-    ApiError, AuthRequiredError, NetworkError, RasterProcessingError,
-    error_from_response,
+    ApiError, AuthRequiredError, NetworkError, error_from_response,
 )
 from geosys_sync.core.models import (
     CogUrl, ManifestEntry, Project, SessionInfo, TokenBundle,

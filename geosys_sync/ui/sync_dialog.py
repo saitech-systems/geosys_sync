@@ -422,27 +422,36 @@ class SyncDialog(QDialog):
         pid = self._current_project_id()
         project = QgsProject.instance()
         jobs = []
+        prep_failed = []  # export/extract failures + style-downgrade warnings
         export_dir = None  # created lazily: raster-only pushes need no exports
         for action in actions:  # MAIN THREAD: exports + style extraction
             layer = project.mapLayer(action.layer_id)
             if layer is None:
+                prep_failed.append('{}: layer is no longer in the project'
+                                   .format(action.name))
                 continue
-            style, _warnings = style_extract.extract_wire(layer)
-            if action.kind == 'vector':
-                if export_dir is None:
-                    export_dir = tempfile.mkdtemp(prefix='geosys_push_')
-                file_path = layer_export.export_vector_gpkg(
-                    layer, os.path.join(export_dir,
-                                        sync_plan.sanitize_filename(action.name) + '.gpkg'))
-            else:
-                file_path = layer_export.raster_source_path(layer)
+            try:
+                style, warnings = style_extract.extract_wire(layer)
+                if action.kind == 'vector':
+                    if export_dir is None:
+                        export_dir = tempfile.mkdtemp(prefix='geosys_push_')
+                    file_path = layer_export.export_vector_gpkg(
+                        layer, os.path.join(export_dir,
+                                            sync_plan.sanitize_filename(action.name) + '.gpkg'))
+                else:
+                    file_path = layer_export.raster_source_path(layer)
+            except RuntimeError as e:
+                prep_failed.append('{}: {}'.format(action.name, e))
+                continue
+            for w in warnings:
+                prep_failed.append('{}: {}'.format(action.name, w))
             jobs.append({'action': action, 'project_id': pid,
                          'file_path': file_path, 'style': style,
                          'epsg': layer_export.layer_epsg(layer)})
         if not jobs:
             if export_dir:
                 shutil.rmtree(export_dir, ignore_errors=True)
-            self.status_label.setText('Selected layers are no longer in the project.')
+            self._finish_status('Nothing uploaded.', prep_failed)
             return
         client = self.client  # pin: a mid-task logout must not swap clients
         server = client.base_url
@@ -450,13 +459,14 @@ class SyncDialog(QDialog):
             'GeosysAI push',
             lambda task, c=client: _push_worker(task, c, jobs),
             lambda results: self._push_finished(results, server, pid,
-                                                export_dir))
+                                                export_dir, prep_failed))
 
-    def _push_finished(self, results, server, project_id, export_dir=None):
+    def _push_finished(self, results, server, project_id, export_dir=None,
+                       prep_failed=None):
         if export_dir:  # uploads are done; drop the temp GPKG exports
             shutil.rmtree(export_dir, ignore_errors=True)
         project = QgsProject.instance()
-        ok, failed = 0, []
+        ok, failed = 0, list(prep_failed or [])
         for r in results:
             action = r['action']
             if r['error'] is not None:
