@@ -249,7 +249,12 @@ class SyncDialog(QDialog):
             try:                       # already persists via _persist_tokens
                 info = client.login(identifier, password)
             except ApiError as e:
-                dlg.show_error(e.message)
+                if e.status == 404:
+                    dlg.show_error('This server does not expose the QGIS Sync API. '
+                                   'Check the URL, and that the server runs a build '
+                                   'with QGIS_SYNC_API_ENABLED=true.')
+                else:
+                    dlg.show_error(e.message)
                 continue
             self.settings.save_connection(server, identifier)
             if not remember:  # drop any token remembered by a prior login

@@ -62,9 +62,14 @@ _CODE_MAP = {
 def error_from_response(resp):
     """Build the right ApiError subclass from a requests.Response."""
     try:
-        envelope = (resp.json() or {}).get('error') or {}
+        body = resp.json()
     except ValueError:
-        envelope = {}
+        body = None
+    envelope = body.get('error') if isinstance(body, dict) else None
+    if not isinstance(envelope, dict):
+        # Endpoints outside the QGIS Sync API (e.g. the platform's global 404
+        # handler) answer {"error": "<string>"} - keep the text as the message.
+        envelope = {'message': envelope} if isinstance(envelope, str) else {}
     code = envelope.get('code') or 'HTTP_{}'.format(resp.status_code)
     message = envelope.get('message') or getattr(resp, 'reason', '') or 'Request failed'
     detail = dict(envelope.get('detail') or {})

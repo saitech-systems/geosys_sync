@@ -1,4 +1,3 @@
-import json
 from unittest import mock
 
 from geosys_sync.core.errors import (
@@ -58,3 +57,24 @@ def test_non_json_body_falls_back_to_http_code():
     err = error_from_response(fake_response(502))
     assert err.code == 'HTTP_502'
     assert err.status == 502
+
+
+def test_string_error_body_keeps_text_as_message():
+    # The platform's global 404 handler answers {"error": "Not found", ...}.
+    err = error_from_response(
+        fake_response(404, {'error': 'Not found', 'success': False}))
+    assert type(err) is ApiError
+    assert err.code == 'HTTP_404'
+    assert err.message == 'Not found'
+    assert err.status == 404
+
+
+def test_non_dict_json_body_falls_back_to_http_code():
+    err = error_from_response(fake_response(500, ['unexpected', 'shape']))
+    assert err.code == 'HTTP_500'
+
+
+def test_null_error_field_falls_back_to_http_code():
+    err = error_from_response(fake_response(400, {'error': None}))
+    assert err.code == 'HTTP_400'
+    assert err.message == 'ERR'
