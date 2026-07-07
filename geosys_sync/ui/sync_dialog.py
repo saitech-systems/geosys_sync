@@ -38,13 +38,21 @@ _CHECKABLE = Qt.ItemIsUserCheckable | Qt.ItemIsEnabled
 
 def _pull_worker(task, client, actions):
     results = []
+    n = len(actions)
     for i, action in enumerate(actions):
+        def file_progress(done, total, _base=100.0 * i / n):
+            # Byte-level progress inside the current file; without it a single
+            # large raster sits at 0% for the whole transfer.
+            if total > 0:
+                task.setProgress(min(99.0, _base + 100.0 * done / total / n))
         try:
             if action.entry.kind == 'vector':
-                etag = client.download_vector(action.entry.id, action.target_path)
+                etag = client.download_vector(action.entry.id, action.target_path,
+                                              progress=file_progress)
             else:
                 cog = client.get_cog_url(action.entry.id)
-                client.download_file(cog.url, action.target_path)
+                client.download_file(cog.url, action.target_path,
+                                     progress=file_progress)
                 etag = cog.sync_etag
             results.append({'action': action, 'etag': etag, 'error': None})
         except AuthRequiredError:

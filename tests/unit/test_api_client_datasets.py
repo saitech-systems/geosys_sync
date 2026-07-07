@@ -40,11 +40,21 @@ def test_download_vector_writes_file_and_returns_etag(requests_mock, tmp_path):
 
 def test_download_vector_reports_progress(requests_mock, tmp_path):
     requests_mock.get(API + '/datasets/880/download', content=b'x' * 10,
-                      headers={'X-Geosys-Sync-Etag': 'e'})
+                      headers={'X-Geosys-Sync-Etag': 'e',
+                               'Content-Length': '10'})
     seen = []
     make_client().download_vector(880, str(tmp_path / 'r.gpkg'),
-                                  progress=seen.append)
-    assert seen and seen[-1] == 10
+                                  progress=lambda done, total: seen.append((done, total)))
+    assert seen and seen[-1] == (10, 10)
+
+
+def test_download_progress_total_zero_when_no_content_length(requests_mock, tmp_path):
+    requests_mock.get('https://s3.example/f.tif?sig=1', content=b'y' * 5)
+    seen = []
+    make_client().download_file('https://s3.example/f.tif?sig=1',
+                                str(tmp_path / 'f.tif'),
+                                progress=lambda done, total: seen.append((done, total)))
+    assert seen[-1][0] == 5
 
 
 def test_get_cog_url(requests_mock):

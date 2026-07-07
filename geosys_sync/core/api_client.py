@@ -27,13 +27,17 @@ def _write_stream(resp, dest_path, progress=None, chunk_size=1024 * 1024):
     parent = os.path.dirname(dest_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
+    try:
+        total = int(resp.headers.get('Content-Length') or 0)
+    except (TypeError, ValueError):
+        total = 0
     done = 0
     with open(dest_path, 'wb') as fh:
         for chunk in resp.iter_content(chunk_size=chunk_size):
             fh.write(chunk)
             done += len(chunk)
             if progress:
-                progress(done)
+                progress(done, total)  # total is 0 when the server omits Content-Length
 
 
 class GeosysClient:
