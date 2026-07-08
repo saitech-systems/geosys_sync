@@ -8,8 +8,12 @@ invalid tokens raise AuthRequiredError so the UI can force a re-login.
 import json
 import logging
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from geosys_sync.core.errors import (
     ApiError, AuthRequiredError, NetworkError, error_from_response,
@@ -21,6 +25,22 @@ from geosys_sync.core.models import (
 log = logging.getLogger(__name__)
 
 API_PREFIX = '/api/qgis/v1'
+
+# Parallel ranged downloads: part size, worker count, and the minimum file
+# size worth splitting. A single TCP stream to a far-away S3 region is
+# latency-bound; concurrent ranges recover most of the available bandwidth
+# (measured against Wasabi us-central-1: 0.4 MB/s single stream, 5 MB/s
+# with 16 ranges).
+RANGE_PART_SIZE = 16 * 1024 * 1024
+RANGE_WORKERS = 16
+
+
+def _content_range_total(header):
+    """Total size from a 'bytes 0-0/12345' Content-Range header, else 0."""
+    try:
+        return int((header or '').rsplit('/', 1)[1])
+    except (IndexError, ValueError):
+        return 0
 
 
 def _write_stream(resp, dest_path, progress=None, chunk_size=1024 * 1024):
@@ -50,7 +70,18 @@ class GeosysClient:
         self.tokens = tokens
         self.on_tokens_changed = on_tokens_changed
         self.timeout = timeout
-        self._http = session or requests.Session()
+        self._http = session or self._default_session()
+
+    @staticmethod
+    def _default_session():
+        # The stock pool keeps 10 connections per host; ranged downloads run
+        # RANGE_WORKERS threads against one S3 host, so size the pool to match
+        # or every extra thread pays a fresh TLS handshake per part.
+        sess = requests.Session()
+        adapter = HTTPAdapter(pool_maxsize=RANGE_WORKERS + 2)
+        sess.mount('https://', adapter)
+        sess.mount('http://', adapter)
+        return sess
 
     # -- plumbing -----------------------------------------------------------
 
@@ -174,9 +205,26 @@ class GeosysClient:
 
     def download_file(self, url, dest_path, progress=None):
         """Fetch an absolute (presigned S3) URL. No Authorization header -
-        the presigned signature IS the credential."""
+        the presigned signature IS the credential. Large files are fetched
+        as parallel byte ranges when the host honours Range requests."""
+        probe = self._plain_get(url, headers={'Range': 'bytes=0-0'})
+        if probe.status_code != 206:
+            # Host ignored the Range header; the probe already carries the
+            # whole body, so just stream it.
+            _write_stream(probe, dest_path, progress)
+            return dest_path
+        total = _content_range_total(probe.headers.get('Content-Range'))
+        probe.close()
+        if total >= 2 * RANGE_PART_SIZE:
+            self._download_ranged(url, dest_path, total, progress)
+        else:
+            _write_stream(self._plain_get(url), dest_path, progress)
+        return dest_path
+
+    def _plain_get(self, url, headers=None):
         try:
-            resp = self._http.get(url, stream=True, timeout=self.timeout)
+            resp = self._http.get(url, stream=True, timeout=self.timeout,
+                                  headers=headers)
         except requests.RequestException as e:
             raise NetworkError('NETWORK_ERROR',
                                'Download failed: {}'.format(e)) from e
@@ -184,8 +232,80 @@ class GeosysClient:
             raise ApiError('DOWNLOAD_FAILED',
                            'HTTP {} fetching file'.format(resp.status_code),
                            status=resp.status_code)
-        _write_stream(resp, dest_path, progress)
-        return dest_path
+        return resp
+
+    def _download_ranged(self, url, dest_path, total, progress):
+        """Download `url` into `dest_path` as concurrent byte-range parts.
+
+        Worker threads only do requests + file writes (never touch QGIS);
+        the progress callback fires on the calling thread. On any failure
+        the preallocated file is removed - a full-size half-written file
+        would look complete."""
+        parts = [(start, min(start + RANGE_PART_SIZE, total) - 1)
+                 for start in range(0, total, RANGE_PART_SIZE)]
+        lock = threading.Lock()
+        done = [0]
+
+        def fetch_part(part):
+            start, end = part
+            for attempt in (0, 1):
+                written = 0
+                try:
+                    resp = self._http.get(
+                        url, stream=True, timeout=self.timeout,
+                        headers={'Range': 'bytes={}-{}'.format(start, end)})
+                    if resp.status_code != 206:
+                        raise ApiError(
+                            'DOWNLOAD_FAILED',
+                            'HTTP {} fetching file'.format(resp.status_code),
+                            status=resp.status_code)
+                    with open(dest_path, 'r+b') as fh:
+                        fh.seek(start)
+                        for chunk in resp.iter_content(chunk_size=256 * 1024):
+                            fh.write(chunk)
+                            written += len(chunk)
+                            with lock:
+                                done[0] += len(chunk)
+                    return
+                except requests.RequestException as e:
+                    with lock:
+                        done[0] -= written
+                    if attempt:
+                        raise NetworkError(
+                            'NETWORK_ERROR',
+                            'Download failed: {}'.format(e)) from e
+
+        parent = os.path.dirname(dest_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(dest_path, 'wb') as fh:
+            fh.truncate(total)
+        try:
+            with ThreadPoolExecutor(
+                    max_workers=min(RANGE_WORKERS, len(parts))) as pool:
+                futures = [pool.submit(fetch_part, p) for p in parts]
+                while True:
+                    for f in futures:
+                        exc = f.exception() if f.done() else None
+                        if exc is not None:
+                            for g in futures:
+                                g.cancel()
+                            raise exc
+                    if progress:
+                        with lock:
+                            n = done[0]
+                        progress(n, total)
+                    if all(f.done() for f in futures):
+                        break
+                    time.sleep(0.2)
+        except BaseException:
+            try:
+                os.remove(dest_path)
+            except OSError:
+                pass
+            raise
+        if progress:
+            progress(total, total)
 
     def raster_status(self, dataset_id):
         resp = self._request('GET', '/datasets/{}/status'.format(dataset_id))

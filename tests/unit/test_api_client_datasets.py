@@ -1,7 +1,10 @@
+import os
+
 import pytest
 
+from geosys_sync.core import api_client
 from geosys_sync.core.api_client import GeosysClient
-from geosys_sync.core.errors import RasterProcessingError
+from geosys_sync.core.errors import ApiError, RasterProcessingError
 from geosys_sync.core.models import TokenBundle
 
 BASE = 'https://server.test'
@@ -73,6 +76,64 @@ def test_get_cog_url_processing_raises(requests_mock):
         'error': {'code': 'RASTER_PROCESSING', 'message': 'converting'}})
     with pytest.raises(RasterProcessingError):
         make_client().get_cog_url(881)
+
+
+def ranged_s3(data):
+    """requests_mock callback that honours Range headers like S3 does."""
+    def cb(request, context):
+        rng = request.headers.get('Range')
+        if not rng:
+            context.headers['Content-Length'] = str(len(data))
+            return data
+        start, end = (int(v) for v in rng.split('=')[1].split('-'))
+        context.status_code = 206
+        context.headers['Content-Range'] = 'bytes {}-{}/{}'.format(
+            start, end, len(data))
+        return data[start:end + 1]
+    return cb
+
+
+def test_download_file_parallel_ranges_reassemble(requests_mock, tmp_path,
+                                                  monkeypatch):
+    monkeypatch.setattr(api_client, 'RANGE_PART_SIZE', 8)
+    data = bytes(range(256)) * 2  # 512 bytes -> 64 parts of 8
+    requests_mock.get('https://s3.wasabi/big.tif', content=ranged_s3(data))
+    dest = str(tmp_path / 'big.tif')
+    seen = []
+    make_client().download_file('https://s3.wasabi/big.tif', dest,
+                                progress=lambda d, t: seen.append((d, t)))
+    assert open(dest, 'rb').read() == data
+    assert seen[-1] == (len(data), len(data))
+
+
+def test_download_file_small_ranged_host_single_stream(requests_mock, tmp_path):
+    # Host supports ranges but the file is below the split threshold:
+    # probe (206) then one plain GET.
+    data = b'small-cog-bytes'
+    requests_mock.get('https://s3.wasabi/small.tif', content=ranged_s3(data))
+    dest = str(tmp_path / 'small.tif')
+    make_client().download_file('https://s3.wasabi/small.tif', dest)
+    assert open(dest, 'rb').read() == data
+    assert len(requests_mock.request_history) == 2
+
+
+def test_download_file_ranged_part_error_removes_file(requests_mock, tmp_path,
+                                                      monkeypatch):
+    monkeypatch.setattr(api_client, 'RANGE_PART_SIZE', 8)
+    data = b'z' * 64
+
+    def cb(request, context):
+        rng = request.headers.get('Range', '')
+        if rng == 'bytes=8-15':  # second part: expired-signature style 403
+            context.status_code = 403
+            return b''
+        return ranged_s3(data)(request, context)
+
+    requests_mock.get('https://s3.wasabi/bad.tif', content=cb)
+    dest = str(tmp_path / 'bad.tif')
+    with pytest.raises(ApiError):
+        make_client().download_file('https://s3.wasabi/bad.tif', dest)
+    assert not os.path.exists(dest)
 
 
 def test_download_file_uses_no_auth_header(requests_mock, tmp_path):
