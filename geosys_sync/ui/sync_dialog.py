@@ -80,7 +80,8 @@ def _push_worker(task, client, jobs):
             else:
                 entry = client.create_dataset(
                     job['project_id'], action.name, action.kind,
-                    job['file_path'], epsg=job['epsg'], style=job['style'])
+                    job['file_path'], epsg=job['epsg'], style=job['style'],
+                    crs_confirmed=job.get('crs_confirmed', False))
             results.append({'action': action, 'entry': entry, 'error': None})
         except AuthRequiredError:
             raise  # abort the whole task -> finished(exception) -> re-login
@@ -329,6 +330,13 @@ class SyncDialog(QDialog):
     def _current_project_id(self):
         return self.project_combo.currentData()
 
+    def _current_project(self):
+        pid = self._current_project_id()
+        for p in self.projects:
+            if p.id == pid:
+                return p
+        return None
+
     def _load_manifest(self):
         pid = self._current_project_id()
         if not (self.client and pid):
@@ -446,6 +454,45 @@ class SyncDialog(QDialog):
 
     # -- push ----------------------------------------------------------------
 
+    def _project_awaiting_crs_confirmation(self):
+        """The current Project when its next raster upload still needs a CRS
+        acknowledgement, else None.
+
+        Re-read from the server rather than trusting the project list cached
+        at login: a stale "already locked" would skip the prompt and turn the
+        upload into a 409 the user cannot resolve from here. A failed re-read
+        falls back to the cached row."""
+        project = self._current_project()
+        pid = self._current_project_id()
+        if pid:
+            try:
+                project = self.client.get_project(pid)
+            except ApiError:
+                log.debug('project re-read failed; using the cached lock state')
+        if project is not None and project.crs_confirmation_required:
+            return project
+        return None
+
+    def _confirm_project_crs(self, project):
+        """Ask before the FIRST raster goes into a project: completing the
+        upload freezes its map CRS for good. Returns True to proceed."""
+        crs = ('EPSG:{}'.format(project.effective_epsg_code)
+               if project.effective_epsg_code else 'its current coordinate system')
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle('Confirm project coordinate system')
+        # project.name is server-supplied text - never render it as rich text.
+        box.setTextFormat(Qt.PlainText)
+        box.setText('This is the first raster in project "{}".'.format(project.name))
+        box.setInformativeText(
+            'Raster data is converted into the project coordinate system ({}) '
+            'when it is uploaded. Completing this upload permanently freezes '
+            'the project map CRS at that value - it cannot be changed '
+            'afterwards.\n\nContinue with the upload?'.format(crs))
+        box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Cancel)
+        return box.exec_() == QMessageBox.Ok
+
     def _run_push(self):
         if not self._require_connection():
             return
@@ -455,6 +502,17 @@ class SyncDialog(QDialog):
         if not actions:
             self.status_label.setText('Nothing selected.')
             return
+        # Only a NEW raster can be a project's first one; an overwrite targets
+        # a dataset that already exists, so the server never re-prompts there.
+        crs_confirmed = False
+        if any(a.kind == 'raster' and a.mode != 'overwrite' for a in actions):
+            # Not named `project` - that name is the QgsProject below.
+            crs_project = self._project_awaiting_crs_confirmation()
+            if crs_project is not None:
+                if not self._confirm_project_crs(crs_project):
+                    self.status_label.setText('Upload cancelled.')
+                    return
+                crs_confirmed = True
         pid = self._current_project_id()
         project = QgsProject.instance()
         jobs = []
@@ -483,7 +541,8 @@ class SyncDialog(QDialog):
                 prep_failed.append('{}: {}'.format(action.name, w))
             jobs.append({'action': action, 'project_id': pid,
                          'file_path': file_path, 'style': style,
-                         'epsg': layer_export.layer_epsg(layer)})
+                         'epsg': layer_export.layer_epsg(layer),
+                         'crs_confirmed': crs_confirmed})
         if not jobs:
             if export_dir:
                 shutil.rmtree(export_dir, ignore_errors=True)

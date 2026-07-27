@@ -40,6 +40,22 @@ def test_project_from_json_minimal():
     assert p.effective_epsg_def is None
 
 
+def test_project_epsg_lock_flags():
+    p = Project.from_json({'id': 7, 'name': 'P', 'epsg_locked': False,
+                           'crs_confirmation_required': True})
+    assert p.epsg_locked is False and p.crs_confirmation_required is True
+    q = Project.from_json({'id': 8, 'name': 'Q', 'epsg_locked': True,
+                           'crs_confirmation_required': False})
+    assert q.epsg_locked is True and q.crs_confirmation_required is False
+
+
+def test_project_lock_flags_default_to_no_prompt_on_older_servers():
+    """A server that sends neither flag also does not enforce the gate, so
+    the plugin must not warn about a freeze it cannot substantiate."""
+    p = Project.from_json({'id': 7, 'name': 'P'})
+    assert p.epsg_locked is True and p.crs_confirmation_required is False
+
+
 def test_manifest_entry_vector():
     e = ManifestEntry.from_json(VECTOR_ENTRY)
     assert e.kind == 'vector'

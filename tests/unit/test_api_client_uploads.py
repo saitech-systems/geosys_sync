@@ -45,6 +45,32 @@ def test_create_raster_dataset_202(requests_mock, gpkg):
     assert 'name="epsg"' in requests_mock.last_request.text
 
 
+def test_create_raster_sends_crs_confirmation_when_confirmed(requests_mock, gpkg):
+    """The project's first raster is refused (409 PROJECT_CRS_UNCONFIRMED)
+    unless this field rides along with the multipart body."""
+    requests_mock.post(API + '/projects/7/datasets', status_code=202,
+                       json=dict(ENTRY, kind='raster'))
+    make_client().create_dataset(7, 'dsm', 'raster', gpkg, epsg=25832,
+                                 crs_confirmed=True)
+    body = requests_mock.last_request.text
+    assert 'name="project_crs_confirmed"' in body
+    assert 'true' in body.split('name="project_crs_confirmed"', 1)[1]
+
+
+def test_create_dataset_omits_crs_confirmation_by_default(requests_mock, gpkg):
+    """No acknowledgement is invented on the user's behalf."""
+    requests_mock.post(API + '/projects/7/datasets', status_code=202,
+                       json=dict(ENTRY, kind='raster'))
+    make_client().create_dataset(7, 'dsm', 'raster', gpkg, epsg=25832)
+    assert 'name="project_crs_confirmed"' not in requests_mock.last_request.text
+
+
+def test_create_vector_dataset_never_sends_crs_confirmation(requests_mock, gpkg):
+    requests_mock.post(API + '/projects/7/datasets', status_code=201, json=ENTRY)
+    make_client().create_dataset(7, 'roads', 'vector', gpkg)
+    assert 'name="project_crs_confirmed"' not in requests_mock.last_request.text
+
+
 def test_overwrite_sends_if_match(requests_mock, gpkg):
     requests_mock.put(API + '/datasets/902/data', json=ENTRY)
     make_client().overwrite_dataset(902, gpkg, 'vector', if_match='old1')

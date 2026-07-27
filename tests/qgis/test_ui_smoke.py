@@ -48,3 +48,35 @@ def test_sync_dialog_status_labels_are_plain_text(qgis_app):
     dlg = SyncDialog(iface=None)
     assert dlg.status_label.textFormat() == Qt.PlainText
     assert dlg.conn_label.textFormat() == Qt.PlainText
+
+
+def _dialog_with_project(cached, fresh=None):
+    from geosys_sync.ui.sync_dialog import SyncDialog
+
+    class _Client:
+        def get_project(self, _pid):
+            return fresh if fresh is not None else cached
+
+    dlg = SyncDialog(iface=None)
+    dlg.projects = [cached]
+    # Added while dlg.client is still None so the signal can't fire a manifest load.
+    dlg.project_combo.addItem(cached.name, cached.id)
+    dlg.client = _Client()
+    return dlg
+
+
+def test_crs_confirmation_skipped_on_a_locked_project(qgis_app):
+    from geosys_sync.core.models import Project
+    locked = Project(id=5, name='P', epsg_locked=True,
+                     crs_confirmation_required=False)
+    assert _dialog_with_project(locked)._project_awaiting_crs_confirmation() is None
+
+
+def test_crs_confirmation_uses_fresh_server_state_not_the_cached_row(qgis_app):
+    from geosys_sync.core.models import Project
+    stale = Project(id=5, name='P', epsg_locked=True,
+                    crs_confirmation_required=False)
+    fresh = Project(id=5, name='P', epsg_locked=False,
+                    crs_confirmation_required=True)
+    got = _dialog_with_project(stale, fresh)._project_awaiting_crs_confirmation()
+    assert got is not None and got.crs_confirmation_required is True

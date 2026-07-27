@@ -379,12 +379,18 @@ class GeosysClient:
     # -- datasets: uploads ----------------------------------------------------
 
     def create_dataset(self, project_id, name, kind, file_path,
-                       epsg=None, style=None):
+                       epsg=None, style=None, crs_confirmed=False):
+        """`crs_confirmed` acknowledges that this upload permanently freezes
+        the project's map CRS. The server demands it on a project's FIRST
+        raster (409 PROJECT_CRS_UNCONFIRMED without it) and ignores it
+        afterwards, so the flag is only ever sent when the user agreed."""
         fields = {'name': name, 'kind': kind}
         if epsg is not None:
             fields['epsg'] = str(epsg)
         if style:
             fields['style'] = json.dumps(style)
+        if crs_confirmed:
+            fields['project_crs_confirmed'] = 'true'
         resp = self._upload('POST', '/projects/{}/datasets'.format(project_id),
                             file_path, fields)
         return ManifestEntry.from_json(resp.json())

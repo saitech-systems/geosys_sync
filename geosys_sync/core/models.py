@@ -54,15 +54,26 @@ class Project:
     epsg_code: Optional[int] = None
     effective_epsg_code: Optional[int] = None
     effective_epsg_def: Optional[dict] = None
+    # True once the project holds raster data: its map CRS is frozen and the
+    # server refuses any change. crs_confirmation_required is the inverse -
+    # the next raster upload must carry an explicit acknowledgement.
+    epsg_locked: bool = True
+    crs_confirmation_required: bool = False
 
     @classmethod
     def from_json(cls, data):
+        # Older servers send neither flag; default to "locked, nothing to
+        # confirm" so the plugin never invents a freeze warning it can't back up.
+        locked = bool(data.get('epsg_locked', True))
         return cls(id=data['id'], name=data.get('name') or '',
                    role=data.get('role') or 'member',
                    is_owner=bool(data.get('is_owner')),
                    epsg_code=data.get('epsg_code'),
                    effective_epsg_code=data.get('effective_epsg_code'),
-                   effective_epsg_def=data.get('effective_epsg_def'))
+                   effective_epsg_def=data.get('effective_epsg_def'),
+                   epsg_locked=locked,
+                   crs_confirmation_required=bool(
+                       data.get('crs_confirmation_required', not locked)))
 
 
 @dataclass
