@@ -17,6 +17,7 @@ from qgis.PyQt.QtWidgets import (
     QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from geosys_sync.core import api_client
 from geosys_sync.core.api_client import GeosysClient
 from geosys_sync.core.errors import (
     ApiError, ApprovalRequiredError, AuthRequiredError,
@@ -24,8 +25,9 @@ from geosys_sync.core.errors import (
 from geosys_sync.core import sync_plan
 from geosys_sync.qgis_adapter import layer_export, layer_load, layer_props
 from geosys_sync.qgis_adapter import style_extract
+from geosys_sync.core.models import MfaChallenge
 from geosys_sync.qgis_adapter.settings_store import SettingsStore
-from geosys_sync.ui.login_dialog import LoginDialog
+from geosys_sync.ui.login_dialog import LoginDialog, MfaDialog
 
 log = logging.getLogger(__name__)
 
@@ -118,6 +120,9 @@ class SyncDialog(QDialog):
 
         header = QHBoxLayout()
         self.conn_label = QLabel('Not connected')
+        # Both labels echo server-supplied text (usernames, error messages);
+        # never render it as rich text.
+        self.conn_label.setTextFormat(Qt.PlainText)
         self.login_btn = QPushButton('Log in...')
         self.login_btn.clicked.connect(self._login_flow)
         header.addWidget(self.conn_label, 1)
@@ -145,6 +150,7 @@ class SyncDialog(QDialog):
         root.addWidget(self.progress)
         self.status_label = QLabel('')
         self.status_label.setWordWrap(True)
+        self.status_label.setTextFormat(Qt.PlainText)
         root.addWidget(self.status_label)
 
     def _build_pull_tab(self):
@@ -249,8 +255,9 @@ class SyncDialog(QDialog):
                           username=saved.get('username') or '')
         while dlg.exec_():
             server, identifier, password, remember = dlg.values()
-            if not (server.startswith('http://') or server.startswith('https://')):
-                dlg.show_error('Server URL must start with http(s)://')
+            problem = api_client.server_url_problem(server)
+            if problem:
+                dlg.show_error(problem)
                 continue
             client = self._make_client(server)
             self._remember = remember  # before login(): its token emission
@@ -264,12 +271,33 @@ class SyncDialog(QDialog):
                 else:
                     dlg.show_error(e.message)
                 continue
+            if isinstance(info, MfaChallenge):
+                info = self._mfa_flow(client, info)
+                if info is None:
+                    dlg.show_error('Verification cancelled or expired - try again.')
+                    continue
             self.settings.save_connection(server, identifier)
             if not remember:  # drop any token remembered by a prior login
                 self.settings.save_refresh_token(None)
             self.client = client
             self._connected(info)
             return
+
+    def _mfa_flow(self, client, challenge):
+        """Prompt for the second-factor code until it verifies, the user
+        cancels, or the pending token dies. Returns SessionInfo or None."""
+        mfa = MfaDialog(self, methods=challenge.methods)
+        while mfa.exec_():
+            if not mfa.code():
+                mfa.show_error('Enter the verification code.')
+                continue
+            try:
+                return client.verify_mfa(challenge.pending_token, mfa.code())
+            except ApiError as e:
+                if e.code in ('MFA_TOKEN_EXPIRED', 'MFA_TOKEN_INVALID'):
+                    return None  # challenge window is dead; back to login
+                mfa.show_error(e.message)
+        return None
 
     def _connected(self, info):
         self.session_info = info

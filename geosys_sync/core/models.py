@@ -19,6 +19,18 @@ class TokenBundle:
 
 
 @dataclass
+class MfaChallenge:
+    """202 login response: the account needs a second factor before tokens."""
+    pending_token: str
+    methods: list = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, data):
+        return cls(pending_token=data['pending_token'],
+                   methods=list(data.get('methods') or []))
+
+
+@dataclass
 class SessionInfo:
     user: dict
     org: dict

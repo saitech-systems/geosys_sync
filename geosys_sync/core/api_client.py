@@ -8,9 +8,11 @@ invalid tokens raise AuthRequiredError so the UI can force a re-login.
 import json
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -19,7 +21,7 @@ from geosys_sync.core.errors import (
     ApiError, AuthRequiredError, NetworkError, error_from_response,
 )
 from geosys_sync.core.models import (
-    CogUrl, ManifestEntry, Project, SessionInfo, TokenBundle,
+    CogUrl, ManifestEntry, MfaChallenge, Project, SessionInfo, TokenBundle,
 )
 
 log = logging.getLogger(__name__)
@@ -33,6 +35,42 @@ API_PREFIX = '/api/qgis/v1'
 # with 16 ranges).
 RANGE_PART_SIZE = 16 * 1024 * 1024
 RANGE_WORKERS = 16
+
+_LOCAL_HOSTS = ('localhost', '127.0.0.1', '::1')
+_QUERY_RE = re.compile(r'\?[^\s\'")\]]*')
+
+
+def _is_local_host(url):
+    try:
+        return urlsplit(url).hostname in _LOCAL_HOSTS
+    except ValueError:
+        return False
+
+
+def server_url_problem(url):
+    """Why `url` is unacceptable as a server base URL, or None if it is fine.
+
+    Credentials and tokens travel on every request, so plain http is only
+    allowed for loopback hosts (local dev servers)."""
+    url = (url or '').strip()
+    if not (url.startswith('http://') or url.startswith('https://')):
+        return 'Server URL must start with http(s)://'
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        host = None
+    if not host:
+        return 'Server URL has no host name'
+    if url.startswith('http://') and host not in _LOCAL_HOSTS:
+        return ('Plain http:// sends your password unencrypted - use '
+                'https:// (http is only allowed for localhost)')
+    return None
+
+
+def redact_query(text):
+    """Strip URL query strings from `text` (presigned S3 URLs carry their
+    signature there; error messages must not echo it)."""
+    return _QUERY_RE.sub('?...', text or '')
 
 
 def _content_range_total(header):
@@ -104,7 +142,8 @@ class GeosysClient:
             return self._http.request(method, self._url(path), headers=headers, **kw)
         except requests.RequestException as e:
             raise NetworkError('NETWORK_ERROR',
-                               'Could not reach server: {}'.format(e)) from e
+                               'Could not reach server: {}'.format(
+                                   redact_query(str(e)))) from e
 
     def _request(self, method, path, auth=True, _retried=False, **kw):
         resp = self._raw(method, path, auth=auth, **kw)
@@ -119,6 +158,8 @@ class GeosysClient:
     # -- auth ---------------------------------------------------------------
 
     def login(self, identifier, password):
+        """Returns SessionInfo on success, or MfaChallenge when the account
+        needs a second factor (finish with verify_mfa)."""
         body = {'password': password, 'device_id': self.device_id,
                 'device_name': self.device_name}
         if '@' in identifier:
@@ -126,6 +167,20 @@ class GeosysClient:
         else:
             body['username'] = identifier
         resp = self._raw('POST', '/auth/login', auth=False, json=body)
+        if resp.status_code >= 400:
+            raise error_from_response(resp)
+        data = resp.json()
+        if data.get('mfa_required'):
+            return MfaChallenge.from_json(data)
+        self._set_tokens(TokenBundle.from_json(data))
+        return SessionInfo.from_json(data)
+
+    def verify_mfa(self, pending_token, code):
+        """Complete an MFA challenge; stores tokens and returns SessionInfo."""
+        resp = self._raw('POST', '/auth/mfa-verify', auth=False,
+                         json={'pending_token': pending_token, 'code': code,
+                               'device_id': self.device_id,
+                               'device_name': self.device_name})
         if resp.status_code >= 400:
             raise error_from_response(resp)
         data = resp.json()
@@ -206,7 +261,15 @@ class GeosysClient:
     def download_file(self, url, dest_path, progress=None):
         """Fetch an absolute (presigned S3) URL. No Authorization header -
         the presigned signature IS the credential. Large files are fetched
-        as parallel byte ranges when the host honours Range requests."""
+        as parallel byte ranges when the host honours Range requests.
+
+        Only https URLs are fetched (http for loopback hosts) - the URL is
+        server-supplied, and this client must not be steerable at arbitrary
+        plain-http or non-HTTP destinations."""
+        if not (url.startswith('https://')
+                or (url.startswith('http://') and _is_local_host(url))):
+            raise ApiError('DOWNLOAD_BLOCKED',
+                           'Refusing non-https download URL from server')
         probe = self._plain_get(url, headers={'Range': 'bytes=0-0'})
         if probe.status_code != 206:
             # Host ignored the Range header; the probe already carries the
@@ -227,7 +290,8 @@ class GeosysClient:
                                   headers=headers)
         except requests.RequestException as e:
             raise NetworkError('NETWORK_ERROR',
-                               'Download failed: {}'.format(e)) from e
+                               'Download failed: {}'.format(
+                                   redact_query(str(e)))) from e
         if resp.status_code >= 400:
             raise ApiError('DOWNLOAD_FAILED',
                            'HTTP {} fetching file'.format(resp.status_code),
@@ -273,7 +337,8 @@ class GeosysClient:
                     if attempt:
                         raise NetworkError(
                             'NETWORK_ERROR',
-                            'Download failed: {}'.format(e)) from e
+                            'Download failed: {}'.format(
+                                redact_query(str(e)))) from e
 
         parent = os.path.dirname(dest_path)
         if parent:

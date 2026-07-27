@@ -33,5 +33,7 @@ For a dev loop, symlink `plugin/geosys_sync` into the active profile's `python/p
 ## Notes
 
 - The refresh token is stored in QgsSettings when "Stay logged in" is checked (plaintext; QgsAuthManager migration is a known follow-up).
+- Server URLs must be `https://`; plain `http://` is only accepted for localhost dev servers, and the same rule applies to download URLs the server hands back.
+- Accounts with MFA enabled are prompted for their authenticator/email code after the password (`/auth/mfa-verify` challenge flow, mirroring the desktop API).
 - Raster push sends the layer's source GeoTIFF; the server converts to COG asynchronously (the dialog notes "server is converting").
 - `label_min_zoom` round-trips but is not converted to a QGIS scale-visibility rule (matches spec section 7.4).
