@@ -107,6 +107,16 @@ def test_declared_epsg_overrides_a_mismatched_or_missing_embedded_crs(tmp_path):
     work.mkdir()
     art = cog_export.build_raster_artifacts(src, 25832, str(work))
 
+    # This fixture is single-band with no declared NoData, so tagging occurs
+    # and original_path IS the tagged copy (not the user's untouched 4326
+    # file) - the branch whose own outputSRS this pins down independently of
+    # the COG and hillshade below.
+    assert art.original_path != src
+    orig_ds = gdal.Open(art.original_path)
+    assert osr.SpatialReference(orig_ds.GetProjection()).GetAuthorityCode(None) \
+        == '25832'
+    orig_ds = None
+
     cog_ds = gdal.Open(art.cog_path)
     assert osr.SpatialReference(cog_ds.GetProjection()).GetAuthorityCode(None) \
         == '25832'
