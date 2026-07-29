@@ -31,6 +31,13 @@ def test_plan_parts_refuses_more_than_the_s3_limit():
     assert '10000' in str(e.value)
 
 
+def test_plan_parts_accepts_exactly_the_s3_limit():
+    """The boundary is inclusive: 10000 parts is legal, 10001 is not."""
+    parts = us.plan_parts(us.S3_MAX_PARTS, 1)
+    assert len(parts) == us.S3_MAX_PARTS
+    assert parts[-1] == (us.S3_MAX_PARTS, us.S3_MAX_PARTS - 1, 1)
+
+
 @pytest.mark.parametrize('size,part', [(0, 100), (100, 0), (-1, 100)])
 def test_plan_parts_rejects_nonsense(size, part):
     with pytest.raises(ValueError):
