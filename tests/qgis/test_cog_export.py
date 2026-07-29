@@ -47,6 +47,16 @@ def test_single_band_produces_cog_hillshade_and_stretch(tmp_path):
         == '25832'
     ds = None
 
+    # A typo redirecting the hillshade COG translate to the wrong source
+    # (or skipping it) would leave hillshade_path pointing at a file that
+    # was never actually written as a valid tiled single-band GeoTIFF; the
+    # assertion above on the path string alone would not catch that.
+    hs = gdal.Open(art.hillshade_path)
+    assert hs.GetDriver().ShortName == 'GTiff'
+    assert hs.RasterCount == 1
+    assert hs.GetRasterBand(1).GetBlockSize()[1] != hs.RasterYSize  # tiled
+    hs = None
+
 
 def test_untagged_single_band_gets_a_tagged_original(tmp_path):
     src = _write_tif(tmp_path / 'dsm.tif', nodata=None)
@@ -76,6 +86,36 @@ def test_multiband_skips_hillshade_and_stretch(tmp_path):
     assert art.hillshade_path is None
     assert art.cog_min is None and art.cog_max is None
     assert art.original_path == src
+
+    # band_count is echoed from the source; confirm the COG that actually
+    # gets uploaded really carries that many bands rather than trusting the
+    # echo alone.
+    ds = gdal.Open(art.cog_path)
+    assert ds.RasterCount == art.band_count == 3
+    ds = None
+
+
+def test_declared_epsg_overrides_a_mismatched_or_missing_embedded_crs(tmp_path):
+    # The file's own embedded CRS (here EPSG:4326) is deliberately NOT the
+    # declared epsg passed in. In the plugin, epsg comes from the QGIS
+    # layer's CRS (layer_export.layer_epsg), which a user can set to
+    # something the file itself does not carry - the case the plugin's own
+    # CRS-confirmation dialog exists to catch. Both derived files must carry
+    # the DECLARED epsg, not whatever the source file happened to embed.
+    src = _write_tif(tmp_path / 'mismatched.tif', epsg=4326)
+    work = tmp_path / 'work'
+    work.mkdir()
+    art = cog_export.build_raster_artifacts(src, 25832, str(work))
+
+    cog_ds = gdal.Open(art.cog_path)
+    assert osr.SpatialReference(cog_ds.GetProjection()).GetAuthorityCode(None) \
+        == '25832'
+    cog_ds = None
+
+    hs_ds = gdal.Open(art.hillshade_path)
+    assert osr.SpatialReference(hs_ds.GetProjection()).GetAuthorityCode(None) \
+        == '25832'
+    hs_ds = None
 
 
 def test_bounds_3857_agree_with_a_direct_transform(tmp_path):
