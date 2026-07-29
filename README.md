@@ -4,7 +4,9 @@ Sync vector and raster layers between QGIS and a GeosysAI project.
 Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with their styling.
 Push QGIS layers back, creating new datasets or overwriting previously synced ones (overwrite-by-identity via the `geosys/dataset_id` layer custom property).
 
-Backend contract: `/api/qgis/v1/*` (see `docs/superpowers/specs/2026-06-27-qgis-sync-plugin-design.md`).
+Backend contract: `/api/qgis/v1/*`, implemented in the `sisl-geo-server` repository
+(`routes/qgis_sync.py` + `services/qgis_sync.py`). The contract itself is specified in
+[`docs/2026-06-27-qgis-sync-plugin-design.md`](docs/2026-06-27-qgis-sync-plugin-design.md).
 The server must run with `QGIS_SYNC_API_ENABLED=true` and the user's organization must have `enable_qgis_sync` switched on.
 
 ## Layout
@@ -15,20 +17,22 @@ The server must run with `QGIS_SYNC_API_ENABLED=true` and the user's organizatio
 
 ## Development
 
+Run everything from the repository root:
+
 ```
-pip install -r plugin/requirements-dev.txt
-pytest plugin/tests            # pure-python suite (qgis tests auto-skip)
-plugin\scripts\run_qgis_tests.bat   # qgis-marked tests inside QGIS python
+pip install -r requirements-dev.txt
+pytest                          # pure-python suite (qgis tests auto-skip)
+scripts\run_qgis_tests.bat      # qgis-marked tests inside QGIS python
 ```
 
 ## Install into QGIS
 
 ```
-python plugin/scripts/package.py
+python scripts/package.py
 ```
 
-Then in QGIS: Plugins > Manage and Install Plugins > Install from ZIP > `plugin/dist/geosys_sync-<version>.zip`.
-For a dev loop, symlink `plugin/geosys_sync` into the active profile's `python/plugins/` and use the Plugin Reloader plugin.
+Then in QGIS: Plugins > Manage and Install Plugins > Install from ZIP > `dist/geosys_sync-<version>.zip`.
+For a dev loop, symlink `geosys_sync/` into the active profile's `python/plugins/` and use the Plugin Reloader plugin.
 
 ## Notes
 

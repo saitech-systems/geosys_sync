@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-# Make `import geosys_sync` work: plugin/ is the package parent.
+# Make `import geosys_sync` work: the repo root is the package parent.
 _PLUGIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if _PLUGIN_DIR not in sys.path:
     sys.path.insert(0, _PLUGIN_DIR)
@@ -19,7 +19,7 @@ def pytest_collection_modifyitems(config, items):
     if HAS_QGIS:
         return
     skip = pytest.mark.skip(
-        reason='qgis not importable; run plugin/scripts/run_qgis_tests.bat')
+        reason='qgis not importable; run scripts/run_qgis_tests.bat')
     for item in items:
         if 'qgis' in item.keywords:
             item.add_marker(skip)

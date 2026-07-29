@@ -2,7 +2,7 @@
 REM Run the qgis-marked plugin tests inside the QGIS python environment.
 REM Usage: run_qgis_tests.bat  (from anywhere; paths are absolute)
 setlocal
-set REPO=%~dp0..\..
+set REPO=%~dp0..
 set QT_QPA_PLATFORM=offscreen
 set PYQGIS=
 
@@ -20,5 +20,5 @@ echo No QGIS python found under "C:\Program Files\QGIS *" & exit /b 1
 :found
 echo Using %PYQGIS%
 call "%PYQGIS%" -m pip install --quiet pytest requests-mock
-call "%PYQGIS%" -m pytest "%REPO%\plugin\tests" -m qgis -v
+call "%PYQGIS%" -m pytest "%REPO%\tests" -m qgis -v
 endlocal
