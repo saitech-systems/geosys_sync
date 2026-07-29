@@ -106,18 +106,13 @@ def push_raster_session(client, *, project_id, dataset_name, files,
 def _upload_file(client, session_id, role, file_index, path, size, part_size,
                  workers, state, total, lock, progress):
     parts = plan_parts(size, part_size)
-    urls = {}
-    for batch in _batched([p[0] for p in parts], PRESIGN_BATCH):
-        for item in client.presign_parts(session_id, role, file_index, batch):
-            urls[item['part_number']] = item['url']
     etags = {}
 
-    def send(part):
+    def send(part, url):
         number, offset, length = part
         for attempt in (0, 1):
             try:
-                etags[number] = client.put_part(urls[number], path, offset,
-                                                length)
+                etags[number] = client.put_part(url, path, offset, length)
                 break
             except NetworkError:
                 if attempt:
@@ -131,9 +126,21 @@ def _upload_file(client, session_id, role, file_index, path, size, part_size,
             if progress:
                 progress(state['done'], total)
 
-    with ThreadPoolExecutor(max_workers=min(workers, len(parts))) as pool:
-        for future in [pool.submit(send, p) for p in parts]:
-            future.result()  # re-raises the first part failure
+    # Presign only the next PRESIGN_BATCH parts, right before sending them,
+    # rather than every part in the file up front: the server's presigned
+    # URLs expire well before a large file finishes uploading at typical
+    # upload speeds, so early batches would go stale while later ones were
+    # still transferring. Parts within a batch still upload in parallel.
+    for batch in _batched(parts, PRESIGN_BATCH):
+        numbers = [p[0] for p in batch]
+        urls = {item['part_number']: item['url']
+                for item in client.presign_parts(session_id, role, file_index,
+                                                 numbers)}
+        with ThreadPoolExecutor(max_workers=min(workers, len(batch))) as pool:
+            futures = [pool.submit(send, p, urls[p[0]]) for p in batch]
+            for future in futures:
+                future.result()  # re-raises the first part failure
+
     client.complete_file(session_id, role, file_index,
                          [{'part_number': n, 'etag': etags[n]}
                           for n in sorted(etags)])
