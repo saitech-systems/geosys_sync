@@ -18,7 +18,8 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from geosys_sync.core.errors import (
-    ApiError, AuthRequiredError, NetworkError, error_from_response,
+    ApiError, AuthRequiredError, NetworkError, RateLimitedError,
+    error_from_response,
 )
 from geosys_sync.core.models import (
     CogUrl, ManifestEntry, MfaChallenge, Project, SessionInfo, TokenBundle,
@@ -27,6 +28,9 @@ from geosys_sync.core.models import (
 log = logging.getLogger(__name__)
 
 API_PREFIX = '/api/qgis/v1'
+
+# Sent on every request; the server records it as the session's app_version.
+PLUGIN_VERSION = '0.2.0'
 
 # Parallel ranged downloads: part size, worker count, and the minimum file
 # size worth splitting. A single TCP stream to a far-away S3 region is
@@ -98,6 +102,42 @@ def _write_stream(resp, dest_path, progress=None, chunk_size=1024 * 1024):
                 progress(done, total)  # total is 0 when the server omits Content-Length
 
 
+class _FileSlice:
+    """A read-only, length-aware window onto part of a file.
+
+    requests derives Content-Length from __len__, so a part streams from disk
+    instead of being read into memory. A 64 MB part times 16 workers would
+    otherwise cost a gigabyte of RAM.
+
+    Deliberately NOT iterable: requests treats an iterable body as a stream
+    and sends it chunked, which presigned S3 PUTs reject. Exposing only read()
+    and __len__ gets a plain Content-Length request.
+    """
+
+    def __init__(self, path, offset, length):
+        self._fh = open(path, 'rb')
+        self._fh.seek(offset)
+        self._length = length
+        self._left = length
+
+    def __len__(self):
+        return self._length
+
+    def read(self, size=-1):
+        if self._left <= 0:
+            return b''
+        want = self._left if size is None or size < 0 else min(size, self._left)
+        data = self._fh.read(want)
+        self._left -= len(data)
+        return data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._fh.close()
+
+
 class GeosysClient:
 
     def __init__(self, base_url, device_id, device_name=None, session=None,
@@ -133,6 +173,7 @@ class GeosysClient:
 
     def _raw(self, method, path, auth=True, headers=None, **kw):
         headers = dict(headers or {})
+        headers.setdefault('X-QGIS-Plugin-Version', PLUGIN_VERSION)
         if auth:
             if not self.tokens or not self.tokens.access_token:
                 raise AuthRequiredError('AUTH_REQUIRED', 'Not logged in')
@@ -431,3 +472,84 @@ class GeosysClient:
                         continue
                     raise
         raise last_err
+
+    # -- datasets: presigned upload sessions ---------------------------------
+    # The client converts the raster locally, PUTs the artifacts straight to
+    # object storage with these presigned URLs, and register writes metadata
+    # only. Gated on the can_upload_raster_cog capability.
+
+    def initiate_upload(self, project_id, dataset_name, files, kind='raster',
+                        dataset_id=None, if_match=None, style=None,
+                        crs_confirmed=False):
+        """Open a session. `files` is a list of
+        {'role', 'filename', 'size', 'sha256'} dicts. Pass `dataset_id` plus
+        `if_match` to replace an existing raster instead of creating one."""
+        body = {'project_id': project_id, 'dataset_name': dataset_name,
+                'kind': kind, 'files': files}
+        if dataset_id is not None:
+            body['dataset_id'] = dataset_id
+        if style:
+            body['style'] = style
+        if crs_confirmed:
+            body['project_crs_confirmed'] = True
+        headers = {'If-Match': if_match} if if_match else None
+        resp = self._request('POST', '/uploads/initiate', json=body,
+                             headers=headers)
+        return resp.json()
+
+    def presign_parts(self, session_id, role, file_index, part_numbers):
+        """Presigned PUT URLs for the given part numbers (at most 100)."""
+        path = '/uploads/{}/presign-parts'.format(session_id)
+        body = {'role': role, 'file_index': file_index,
+                'part_numbers': list(part_numbers)}
+        try:
+            return self._request('POST', path, json=body).json()['parts']
+        except RateLimitedError as e:
+            # Presign is the chatty endpoint and the server rate-limits it per
+            # user; honour the hint once rather than failing the whole push.
+            time.sleep(min(e.retry_after, 30))
+            return self._request('POST', path, json=body).json()['parts']
+
+    def put_part(self, url, file_path, offset, length):
+        """PUT one part to a presigned URL and return its ETag.
+
+        No Authorization header - the presigned signature IS the credential,
+        and sending a bearer token to a server-supplied host would leak it."""
+        if not (url.startswith('https://')
+                or (url.startswith('http://') and _is_local_host(url))):
+            raise ApiError('UPLOAD_BLOCKED',
+                           'Refusing non-https upload URL from server')
+        try:
+            with _FileSlice(file_path, offset, length) as body:
+                resp = self._http.put(url, data=body, timeout=self.timeout)
+        except requests.RequestException as e:
+            raise NetworkError('NETWORK_ERROR',
+                               'Upload failed: {}'.format(
+                                   redact_query(str(e)))) from e
+        if resp.status_code >= 400:
+            raise ApiError('UPLOAD_FAILED',
+                           'HTTP {} uploading part'.format(resp.status_code),
+                           status=resp.status_code)
+        etag = resp.headers.get('ETag')
+        if not etag:
+            raise ApiError('UPLOAD_FAILED',
+                           'Storage did not return an ETag for the part')
+        return etag
+
+    def complete_file(self, session_id, role, file_index, parts):
+        """Assemble one file from its uploaded parts. `parts` is a list of
+        {'part_number', 'etag'} dicts."""
+        resp = self._request(
+            'POST', '/uploads/{}/complete-file'.format(session_id),
+            json={'role': role, 'file_index': file_index, 'parts': parts})
+        return resp.json()
+
+    def abort_upload(self, session_id):
+        return self._request(
+            'DELETE', '/uploads/{}'.format(session_id)).json()
+
+    def register_upload(self, session_id, payload):
+        """Create or replace the dataset from the uploaded artifacts."""
+        resp = self._request(
+            'POST', '/uploads/{}/register'.format(session_id), json=payload)
+        return ManifestEntry.from_json(resp.json())

@@ -54,6 +54,7 @@ _CODE_MAP = {
     'SYNC_CONFLICT': SyncConflictError,
     'RASTER_PROCESSING': RasterProcessingError,
     'RATE_LIMITED': RateLimitedError,
+    'ETAG_MISMATCH': SyncConflictError,
 }
 # TOKEN_EXPIRED intentionally maps to plain ApiError: the client catches it,
 # refreshes once, and retries. Only revoked/invalid tokens force re-login.
