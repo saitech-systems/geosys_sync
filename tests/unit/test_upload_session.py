@@ -62,12 +62,23 @@ def test_sha256_file_streams_in_chunks(tmp_path):
 class FakeClient:
     """Records the session choreography without touching the network."""
 
-    def __init__(self, part_size=100, fail_put_on=None):
+    def __init__(self, part_size=100, fail_put_on=None,
+                 fail_status_once_on=None, fail_status_always_on=None,
+                 abort_raises=None):
         self.part_size = part_size
-        self.fail_put_on = fail_put_on   # part number that raises once
+        self.fail_put_on = fail_put_on   # part number that raises NetworkError once
+        # part_number -> HTTP status: raise a status-bearing ApiError once,
+        # then succeed on retry. Simulates a transient storage 5xx.
+        self.fail_status_once_on = fail_status_once_on or {}
+        # part_number -> HTTP status: raise a status-bearing ApiError on
+        # every attempt. Simulates a permanent 4xx, or a 5xx that never
+        # recovers within the driver's one-retry ceiling.
+        self.fail_status_always_on = fail_status_always_on or {}
+        self.abort_raises = abort_raises  # exception instance, or None
         self.initiated = None
         self.presigned = []
         self.puts = []
+        self.put_attempts = []  # every put_part call's part number, incl. failures
         self.completed = []
         self.registered = None
         self.aborted = []
@@ -87,7 +98,17 @@ class FakeClient:
                  'expires_in': 60} for n in part_numbers]
 
     def put_part(self, url, file_path, offset, length):
-        if self.fail_put_on is not None and url.endswith(str(self.fail_put_on)) \
+        number = int(url.rsplit('/', 1)[-1])
+        self.put_attempts.append(number)
+        if number in self.fail_status_always_on:
+            raise ApiError('UPLOAD_FAILED', 'storage error',
+                           status=self.fail_status_always_on[number])
+        if number in self.fail_status_once_on \
+                and number not in self._failed_once:
+            self._failed_once.add(number)
+            raise ApiError('UPLOAD_FAILED', 'storage error',
+                           status=self.fail_status_once_on[number])
+        if self.fail_put_on is not None and number == self.fail_put_on \
                 and self.fail_put_on not in self._failed_once:
             self._failed_once.add(self.fail_put_on)
             raise NetworkError('NETWORK_ERROR', 'flaky')
@@ -104,6 +125,8 @@ class FakeClient:
 
     def abort_upload(self, session_id):
         self.aborted.append(session_id)
+        if self.abort_raises is not None:
+            raise self.abort_raises
 
 
 @pytest.fixture
@@ -181,3 +204,48 @@ def test_driver_presigns_in_batches_of_100(tmp_path):
                            files=[('cog', str(big))], register_payload=PAYLOAD)
     batches = [nums for role, nums in client.presigned]
     assert [len(b) for b in batches] == [100, 50]
+
+
+def test_driver_retries_a_5xx_once_then_succeeds(artifacts):
+    """A storage 500 is worth one retry; the second attempt should succeed."""
+    client = FakeClient(part_size=100, fail_status_once_on={2: 500})
+    us.push_raster_session(client, project_id=7, dataset_name='dsm',
+                           files=artifacts, register_payload=PAYLOAD)
+    # One failing attempt plus one retry - not zero, not unlimited.
+    assert client.put_attempts.count(2) == 2
+    assert client.completed == [('cog', [1, 2, 3]), ('original', [1])]
+    assert client.aborted == []
+
+
+def test_driver_propagates_a_4xx_without_retrying(artifacts):
+    """A 404 will not fix itself on retry, so it must propagate immediately."""
+    client = FakeClient(part_size=100, fail_status_always_on={2: 404})
+    with pytest.raises(ApiError):
+        us.push_raster_session(client, project_id=7, dataset_name='dsm',
+                               files=artifacts, register_payload=PAYLOAD)
+    # Exactly one attempt: the 4xx branch must not retry at all.
+    assert client.put_attempts.count(2) == 1
+    assert client.aborted == ['sess-1']
+
+
+def test_driver_gives_up_after_one_retry_on_a_persistent_5xx(artifacts):
+    """A part that fails on every attempt still hits the one-retry ceiling."""
+    client = FakeClient(part_size=100, fail_status_always_on={2: 500})
+    with pytest.raises(ApiError):
+        us.push_raster_session(client, project_id=7, dataset_name='dsm',
+                               files=artifacts, register_payload=PAYLOAD)
+    # One attempt plus one retry, then give up - proves the ceiling exists.
+    assert client.put_attempts.count(2) == 2
+    assert client.aborted == ['sess-1']
+
+
+def test_driver_reraises_the_original_error_when_abort_also_fails(artifacts):
+    """The abort is best-effort: if it fails too, the ORIGINAL error wins."""
+    client = FakeClient(part_size=100, fail_status_always_on={1: 400},
+                        abort_raises=ApiError('ABORT_FAILED', 'cannot abort'))
+    with pytest.raises(ApiError) as exc_info:
+        us.push_raster_session(client, project_id=7, dataset_name='dsm',
+                               files=artifacts, register_payload=PAYLOAD)
+    assert exc_info.value.code == 'UPLOAD_FAILED'
+    assert client.aborted == ['sess-1']
+    assert client.registered is None
