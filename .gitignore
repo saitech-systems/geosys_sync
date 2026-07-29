@@ -17,3 +17,6 @@ env/
 # OS
 Thumbs.db
 .DS_Store
+
+# Git worktrees (superpowers isolated workspaces)
+.worktrees/
