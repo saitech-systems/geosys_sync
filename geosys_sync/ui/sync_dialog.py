@@ -79,14 +79,19 @@ def _push_raster_cog(task, client, job, base, span):
     never QGIS layer objects.
     """
     action = job['action']
+    # Coerce once, up front: build_raster_artifacts and plan_raster_upload
+    # both need an int, and plan_raster_upload's copy also goes straight into
+    # the register payload - a bad epsg should fail here, before the upload,
+    # not after it at register time.
+    epsg = int(job['epsg'])
     work_dir = tempfile.mkdtemp(prefix='geosys_cog_')
     try:
         artifacts = cog_export.build_raster_artifacts(
-            job['file_path'], job['epsg'], work_dir,
+            job['file_path'], epsg, work_dir,
             progress=lambda pct: task.setProgress(
                 base + span * _CONVERT_SHARE * pct / 100.0))
         files, register_payload, dataset_id, if_match = sync_plan.plan_raster_upload(
-            action.mode, action.dataset_id, action.if_match, job['epsg'],
+            action.mode, action.dataset_id, action.if_match, epsg,
             artifacts)
 
         def on_bytes(done, total):

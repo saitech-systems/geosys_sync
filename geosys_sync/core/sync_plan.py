@@ -126,7 +126,7 @@ def plan_raster_upload(mode, dataset_id, if_match, epsg, artifacts):
     register_payload = {
         'epsg': epsg,
         'band_count': artifacts.band_count,
-        'dtype': artifacts.dtype,
+        'dtype': artifacts.dtype,  # informational only; matches desktop app
         'cog_min': artifacts.cog_min,
         'cog_max': artifacts.cog_max,
         'bounds_3857': artifacts.bounds_3857,

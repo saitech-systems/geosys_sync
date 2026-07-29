@@ -22,6 +22,7 @@ shared QGIS interpreter, and a process-wide flag would change error handling
 for every other installed plugin's GDAL calls too.
 """
 import os
+import uuid
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -106,7 +107,11 @@ def build_raster_artifacts(source_path, epsg, work_dir, progress=None):
         # step 1 above ran.
         hillshade_path = None
         if band_count == 1:
-            hs_tmp = os.path.join(work_dir, 'hs_tmp.tif')
+            # A uuid-suffixed name, not a fixed one, so this can never
+            # collide with the tagged copy above even when the user's own
+            # raster happens to be untagged and named the same thing.
+            hs_tmp = os.path.join(
+                work_dir, '_geosys_hs_tmp_{}.tif'.format(uuid.uuid4().hex))
             hillshade_path = os.path.join(work_dir,
                                           '{}_HILLSHADE.tif'.format(stem))
             gdal.DEMProcessing(hs_tmp, src, 'hillshade', zFactor=1.0,
