@@ -137,9 +137,13 @@ def _push_worker(task, client, jobs, cog_flow=False):
             raise  # abort the whole task -> finished(exception) -> re-login
         except ApiError as e:
             results.append({'action': action, 'entry': None, 'error': e})
-        except RuntimeError as e:
-            # Local conversion failure: report it per layer like an API error
-            # rather than killing the rest of the push.
+        except Exception as e:
+            # Local conversion/planning failure: report it per layer like an
+            # API error rather than killing the rest of the push, so layers
+            # already uploaded still get their sync state written. Covers
+            # more than RuntimeError - e.g. ValueError from plan_parts or
+            # bounds_from_points, TypeError from a bad epsg, KeyError from a
+            # malformed register response.
             results.append({'action': action, 'entry': None,
                             'error': ApiError('CONVERSION_FAILED', str(e))})
         task.setProgress(100.0 * (i + 1) / len(jobs))
