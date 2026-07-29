@@ -85,32 +85,23 @@ def _push_raster_cog(task, client, job, base, span):
             job['file_path'], job['epsg'], work_dir,
             progress=lambda pct: task.setProgress(
                 base + span * _CONVERT_SHARE * pct / 100.0))
-        files = [('cog', artifacts.cog_path),
-                 ('original', artifacts.original_path)]
-        if artifacts.hillshade_path:
-            files.append(('hillshade_cog', artifacts.hillshade_path))
+        files, register_payload, dataset_id, if_match = sync_plan.plan_raster_upload(
+            action.mode, action.dataset_id, action.if_match, job['epsg'],
+            artifacts)
 
         def on_bytes(done, total):
             if total:
                 task.setProgress(base + span * (
                     _CONVERT_SHARE + _UPLOAD_SHARE * done / float(total)))
 
-        overwrite = action.mode == 'overwrite'
         return upload_session.push_raster_session(
             client,
             project_id=job['project_id'],
             dataset_name=action.name,
             files=files,
-            register_payload={
-                'epsg': job['epsg'],
-                'band_count': artifacts.band_count,
-                'dtype': artifacts.dtype,
-                'cog_min': artifacts.cog_min,
-                'cog_max': artifacts.cog_max,
-                'bounds_3857': artifacts.bounds_3857,
-            },
-            dataset_id=(action.dataset_id if overwrite else None),
-            if_match=(action.if_match if overwrite else None),
+            register_payload=register_payload,
+            dataset_id=dataset_id,
+            if_match=if_match,
             style=job['style'],
             crs_confirmed=job.get('crs_confirmed', False),
             progress=on_bytes)
