@@ -92,3 +92,13 @@ def plan_push(local_facts, manifest_by_id, capabilities, server_base, project_id
                 f.layer_id, f.name, f.kind, 'overwrite',
                 dataset_id=f.dataset_id, if_match=f.sync_etag))
     return actions
+
+
+def uses_cog_flow(kind, capabilities):
+    """True when a raster push should convert locally and upload to storage.
+
+    Older servers do not advertise the capability; the plugin then keeps
+    posting the raw GeoTIFF for server-side conversion.
+    """
+    return kind == 'raster' and bool(
+        (capabilities or {}).get('can_upload_raster_cog'))

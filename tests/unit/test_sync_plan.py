@@ -1,5 +1,6 @@
 import os
 
+from geosys_sync.core import sync_plan
 from geosys_sync.core.models import ManifestEntry
 from geosys_sync.core.sync_plan import (
     LayerFacts, plan_pull, plan_push, sanitize_filename,
@@ -94,3 +95,16 @@ def test_plan_push_unsupported_kind_blocked():
     f = facts(kind=None, name='pointcloud')
     a = plan_push([f], {}, CAPS, SERVER, 7)[0]
     assert a.blocked_reason
+
+
+def test_uses_cog_flow_only_for_rasters_on_a_capable_server():
+    caps = {'can_upload_raster': True, 'can_upload_raster_cog': True}
+    assert sync_plan.uses_cog_flow('raster', caps) is True
+    assert sync_plan.uses_cog_flow('vector', caps) is False
+
+
+def test_uses_cog_flow_is_false_against_an_older_server():
+    """No capability means server-side conversion; the plugin must fall back."""
+    assert sync_plan.uses_cog_flow('raster', {'can_upload_raster': True}) is False
+    assert sync_plan.uses_cog_flow('raster', {}) is False
+    assert sync_plan.uses_cog_flow('raster', None) is False
