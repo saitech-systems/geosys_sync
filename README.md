@@ -39,5 +39,11 @@ For a dev loop, symlink `geosys_sync/` into the active profile's `python/plugins
 - The refresh token is stored in QgsSettings when "Stay logged in" is checked (plaintext; QgsAuthManager migration is a known follow-up).
 - Server URLs must be `https://`; plain `http://` is only accepted for localhost dev servers, and the same rule applies to download URLs the server hands back.
 - Accounts with MFA enabled are prompted for their authenticator/email code after the password (`/auth/mfa-verify` challenge flow, mirroring the desktop API).
-- Raster push sends the layer's source GeoTIFF; the server converts to COG asynchronously (the dialog notes "server is converting").
+### Raster push
+
+Rasters are converted on your machine, not on the server.
+The plugin writes a Cloud Optimized GeoTIFF (and, for single-band rasters, a hillshade), uploads them straight to object storage over presigned URLs, and then registers the dataset on the platform.
+Nothing but metadata passes through the GeosysAI application servers.
+
+Against a server that does not yet support this, the plugin falls back to uploading the raw GeoTIFF for server-side conversion.
 - `label_min_zoom` round-trips but is not converted to a QGIS scale-visibility rule (matches spec section 7.4).
