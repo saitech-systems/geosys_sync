@@ -105,13 +105,16 @@ def _write_stream(resp, dest_path, progress=None, chunk_size=1024 * 1024):
 class _FileSlice:
     """A read-only, length-aware window onto part of a file.
 
-    requests derives Content-Length from __len__, so a part streams from disk
-    instead of being read into memory. A 64 MB part times 16 workers would
+    requests sets a plain Content-Length when a body's length is determinable
+    via __len__; without that it falls back to chunked transfer encoding,
+    which presigned S3 PUTs reject. So __len__ is required, not decorative -
+    and a part streams from disk instead of being read into memory as a
+    side effect, which matters because a 64 MB part times 16 workers would
     otherwise cost a gigabyte of RAM.
 
-    Deliberately NOT iterable: requests treats an iterable body as a stream
-    and sends it chunked, which presigned S3 PUTs reject. Exposing only read()
-    and __len__ gets a plain Content-Length request.
+    The class deliberately exposes only read() and __len__, and is NOT made
+    iterable, as belt-and-braces defense in depth against a future requests
+    version changing how it classifies a body - not the primary mechanism.
     """
 
     def __init__(self, path, offset, length):
