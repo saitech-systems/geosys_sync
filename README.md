@@ -4,9 +4,8 @@ Sync vector and raster layers between QGIS and a GeosysAI project.
 Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with their styling.
 Push QGIS layers back, creating new datasets or overwriting previously synced ones (overwrite-by-identity via the `geosys/dataset_id` layer custom property).
 
-Backend contract: `/api/qgis/v1/*`, implemented in the `sisl-geo-server` repository
-(`routes/qgis_sync.py` + `services/qgis_sync.py`). The contract itself is specified in
-[`docs/2026-06-27-qgis-sync-plugin-design.md`](docs/2026-06-27-qgis-sync-plugin-design.md).
+Backend contract: `/api/qgis/v1/*`, implemented and specified in the `sisl-geo-server`
+repository (`routes/qgis_sync.py` + `services/qgis_sync.py`).
 The server must run with `QGIS_SYNC_API_ENABLED=true` and the user's organization must have `enable_qgis_sync` switched on.
 
 ## Layout
@@ -57,7 +56,9 @@ The layer's global opacity syncs alongside it, independently of per-class visibi
 
 Any other raster renderer pushes opacity only and leaves the dataset's symbology on the platform untouched, because there is nowhere to store a colour ramp or a band combination.
 That includes **Singleband pseudocolor**: pushing one reports a note saying the symbology was not uploaded, rather than silently discarding classes the platform may already hold.
-The wire contract behind this is [`docs/qgis-plugin-paletted-raster-styles.md`](docs/qgis-plugin-paletted-raster-styles.md).
+
+On the wire this is `symbology_type: 'categorized'` with the sentinel `symbology_attribute: 'pixel_value'`, mapping each pixel value to a `{color, label, visible}` object - as opposed to a vector, which names a real field and maps each value to a bare hex string.
+`tests/unit/test_style_wire.py` and `tests/qgis/test_raster_style_roundtrip.py` are the executable form of that contract.
 
 ## Style-only sync
 

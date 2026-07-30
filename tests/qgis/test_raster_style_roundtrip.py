@@ -1,6 +1,6 @@
 """Paletted raster symbology, end to end through the QGIS renderer.
 
-The contract these guard is docs/qgis-plugin-paletted-raster-styles.md: a
+The contract these guard: a
 paletted raster style must survive pull -> QGIS -> push with its class labels
 and per-class visibility intact, and a raster whose renderer the platform
 cannot store must not push symbology at all.

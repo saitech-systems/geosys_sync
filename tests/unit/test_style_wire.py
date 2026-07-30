@@ -43,8 +43,7 @@ def test_category_key_null_convention():
 # symbology_type 'categorized' has two payload shapes on the wire. A vector
 # names a real field in symbology_attribute and maps each value to a bare hex
 # string; a raster uses the sentinel 'pixel_value' and maps each pixel value to
-# a {color, label, visible} object. See
-# docs/qgis-plugin-paletted-raster-styles.md.
+# a {color, label, visible} object.
 
 PALETTED = {
     'symbology_type': 'categorized',
