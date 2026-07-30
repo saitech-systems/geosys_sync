@@ -1,8 +1,8 @@
 """Wire style JSON -> QGIS renderer + labels (pull direction)."""
 from qgis.core import (
-    QgsCategorizedSymbolRenderer, QgsMapLayer, QgsPalLayerSettings,
-    QgsRendererCategory, QgsSingleSymbolRenderer, QgsSymbol, QgsTextFormat,
-    QgsVectorLayerSimpleLabeling,
+    QgsCategorizedSymbolRenderer, QgsMapLayer, QgsPalettedRasterRenderer,
+    QgsPalLayerSettings, QgsRendererCategory, QgsSingleSymbolRenderer,
+    QgsSymbol, QgsTextFormat, QgsVectorLayerSimpleLabeling,
 )
 from qgis.PyQt.QtGui import QColor
 
@@ -12,10 +12,7 @@ from geosys_sync.core import style_wire
 def apply_wire(layer, wire):
     wire = wire or {}
     if layer.type() == QgsMapLayer.RasterLayer:
-        opacity = wire.get('raster_opacity')
-        if opacity is not None:
-            layer.setOpacity(max(0.0, min(1.0, float(opacity))))
-        layer.triggerRepaint()
+        _apply_raster(layer, wire)
         return
 
     if (wire.get('symbology_type') == 'categorized'
@@ -26,6 +23,41 @@ def apply_wire(layer, wire):
         layer.setRenderer(_single_renderer(layer, wire))
     _apply_labels(layer, wire)
     layer.triggerRepaint()
+
+
+def _apply_raster(layer, wire):
+    """Paletted classes (if any) plus the whole-layer alpha.
+
+    A style with no paletted classes leaves the renderer alone: the platform
+    stores no other raster symbology, so replacing whatever QGIS picked for the
+    file (greyscale stretch, multiband RGB) would lose information rather than
+    apply any.
+    """
+    renderer = _paletted_renderer(layer, style_wire.paletted_classes(wire))
+    if renderer is not None:
+        layer.setRenderer(renderer)
+    opacity = wire.get('raster_opacity')
+    if opacity is not None:
+        layer.setOpacity(max(0.0, min(1.0, float(opacity))))
+    layer.triggerRepaint()
+
+
+def _paletted_renderer(layer, classes):
+    provider = layer.dataProvider()
+    if not classes or provider is None or provider.bandCount() < 1:
+        return None
+    entries = []
+    for cls in classes:
+        color = QColor(cls['color'])
+        if not cls['visible']:
+            # Hidden means transparent, not absent: the class keeps its colour
+            # and label so the user can switch it back on.
+            color.setAlpha(0)
+        entries.append(QgsPalettedRasterRenderer.Class(
+            cls['value'], color, cls['label']))
+    # Band 1 always: 'pixel_value' means the raw value of band 1 and the wire
+    # carries no band number.
+    return QgsPalettedRasterRenderer(provider, 1, entries)
 
 
 def _single_renderer(layer, wire):

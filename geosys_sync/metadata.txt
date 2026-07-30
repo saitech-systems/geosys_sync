@@ -2,13 +2,13 @@
 name=GeosysAI Sync
 qgisMinimumVersion=3.28
 description=Sync vector and raster layers between QGIS and a GeosysAI project (pull with styling, push create-or-overwrite).
-version=0.2.0
+version=0.3.0
 author=SAITECH Systems
 email=yash@saitech-systems.com
-about=Directional sync against the GeosysAI /api/qgis/v1 API. Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with styling; push QGIS layers back, creating new datasets or overwriting previously synced ones. Rasters are converted to Cloud Optimized GeoTIFF locally and uploaded directly to object storage.
+about=Directional sync against the GeosysAI /api/qgis/v1 API. Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with styling; push QGIS layers back, creating new datasets or overwriting previously synced ones. Rasters are converted to Cloud Optimized GeoTIFF locally and uploaded directly to object storage, and single-band raster classes sync as a Paletted / Unique values renderer.
 tracker=https://github.com/saitech-systems/GeosysAI-Project-Sync-Plugin/issues
 repository=https://github.com/saitech-systems/GeosysAI-Project-Sync-Plugin
-tags=sync,geopackage,cog,raster,vector
+tags=sync,geopackage,cog,raster,vector,symbology
 category=Web
 icon=
 experimental=True

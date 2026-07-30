@@ -48,3 +48,13 @@ The plugin writes a Cloud Optimized GeoTIFF (and, for single-band rasters, a hil
 Nothing but metadata passes through the GeosysAI application servers.
 
 Against a server that does not yet support this, the plugin falls back to uploading the raw GeoTIFF for server-side conversion.
+
+## Raster symbology
+
+A single-band raster's classes sync both ways as the QGIS **Paletted / Unique values** renderer.
+Each class carries its pixel value, colour, label, and visibility; a class switched off on either side comes back with its colour and label intact, drawn transparent rather than dropped.
+The layer's global opacity syncs alongside it, independently of per-class visibility.
+
+Any other raster renderer pushes opacity only and leaves the dataset's symbology on the platform untouched, because there is nowhere to store a colour ramp or a band combination.
+That includes **Singleband pseudocolor**: pushing one reports a note saying the symbology was not uploaded, rather than silently discarding classes the platform may already hold.
+The wire contract behind this is [`docs/qgis-plugin-paletted-raster-styles.md`](docs/qgis-plugin-paletted-raster-styles.md).

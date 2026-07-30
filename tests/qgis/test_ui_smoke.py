@@ -50,6 +50,25 @@ def test_sync_dialog_status_labels_are_plain_text(qgis_app):
     assert dlg.conn_label.textFormat() == Qt.PlainText
 
 
+def test_finish_status_keeps_notes_out_of_the_failed_list(qgis_app):
+    # A style the platform had to downgrade is not a layer that failed to
+    # upload, and must not read like one.
+    from geosys_sync.ui.sync_dialog import SyncDialog
+    dlg = SyncDialog(iface=None)
+    dlg._finish_status('Uploaded 2 layer(s).', ['roads: timed out'],
+                       ['dem: pseudocolor not supported'])
+    text = dlg.status_label.text()
+    assert 'Failed: roads: timed out' in text
+    assert 'Note: dem: pseudocolor not supported' in text
+
+
+def test_finish_status_says_nothing_extra_when_all_is_well(qgis_app):
+    from geosys_sync.ui.sync_dialog import SyncDialog
+    dlg = SyncDialog(iface=None)
+    dlg._finish_status('Downloaded 3 layer(s).', [])
+    assert dlg.status_label.text() == 'Downloaded 3 layer(s).'
+
+
 def _dialog_with_project(cached, fresh=None):
     from geosys_sync.ui.sync_dialog import SyncDialog
 

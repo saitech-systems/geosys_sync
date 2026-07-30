@@ -580,7 +580,8 @@ class SyncDialog(QDialog):
         pid = self._current_project_id()
         project = QgsProject.instance()
         jobs = []
-        prep_failed = []  # export/extract failures + style-downgrade warnings
+        prep_failed = []  # export/extract failures: these layers do not upload
+        prep_notes = []   # style downgrades: the layer uploads, styled worse
         export_dir = None  # created lazily: raster-only pushes need no exports
         for action in actions:  # MAIN THREAD: exports + style extraction
             layer = project.mapLayer(action.layer_id)
@@ -602,7 +603,7 @@ class SyncDialog(QDialog):
                 prep_failed.append('{}: {}'.format(action.name, e))
                 continue
             for w in warnings:
-                prep_failed.append('{}: {}'.format(action.name, w))
+                prep_notes.append('{}: {}'.format(action.name, w))
             jobs.append({'action': action, 'project_id': pid,
                          'file_path': file_path, 'style': style,
                          'epsg': layer_export.layer_epsg(layer),
@@ -610,7 +611,7 @@ class SyncDialog(QDialog):
         if not jobs:
             if export_dir:
                 shutil.rmtree(export_dir, ignore_errors=True)
-            self._finish_status('Nothing uploaded.', prep_failed)
+            self._finish_status('Nothing uploaded.', prep_failed, prep_notes)
             return
         caps = (self.session_info.capabilities if self.session_info else {})
         cog_flow = any(sync_plan.uses_cog_flow(j['action'].kind, caps)
@@ -621,14 +622,16 @@ class SyncDialog(QDialog):
             'GeosysAI push',
             lambda task, c=client, f=cog_flow: _push_worker(task, c, jobs, f),
             lambda results: self._push_finished(results, server, pid,
-                                                export_dir, prep_failed))
+                                                export_dir, prep_failed,
+                                                prep_notes))
 
     def _push_finished(self, results, server, project_id, export_dir=None,
-                       prep_failed=None):
+                       prep_failed=None, prep_notes=None):
         if export_dir:  # uploads are done; drop the temp GPKG exports
             shutil.rmtree(export_dir, ignore_errors=True)
         project = QgsProject.instance()
         ok, failed = 0, list(prep_failed or [])
+        notes = list(prep_notes or [])
         for r in results:
             action = r['action']
             if r['error'] is not None:
@@ -644,11 +647,16 @@ class SyncDialog(QDialog):
                     layer, server_base=server, project_id=project_id,
                     dataset_id=entry.id, kind=entry.kind,
                     sync_etag=entry.sync_etag)
+            # What the server itself had to downgrade while storing the style.
+            # Discarding these would hide, for instance, a symbology_type it
+            # does not support having been rewritten to 'single'.
+            for w in entry.style_warnings:
+                notes.append('{}: {}'.format(action.name, w))
             note = (' (server is converting the raster)'
                     if entry.cog_status == 'processing' else '')
             ok += 1
             log.info('pushed %s -> dataset %s%s', action.name, entry.id, note)
-        self._finish_status('Uploaded {} layer(s).'.format(ok), failed)
+        self._finish_status('Uploaded {} layer(s).'.format(ok), failed, notes)
         self._load_manifest()
 
     # -- task + status plumbing ----------------------------------------------
@@ -686,12 +694,16 @@ class SyncDialog(QDialog):
         self._task = task
         QgsApplication.taskManager().addTask(task)
 
-    def _finish_status(self, ok_text, failed):
+    def _finish_status(self, ok_text, failed, notes=None):
+        """notes are things that succeeded but not as asked - a downgraded
+        renderer, symbology the platform cannot store. Kept apart from failed
+        so a warning never reads as a layer that did not upload."""
+        parts = [ok_text]
         if failed:
-            self.status_label.setText(
-                '{} Failed: {}'.format(ok_text, ' | '.join(failed)))
-        else:
-            self.status_label.setText(ok_text)
+            parts.append('Failed: {}'.format(' | '.join(failed)))
+        if notes:
+            parts.append('Note: {}'.format(' | '.join(notes)))
+        self.status_label.setText(' '.join(parts))
 
     def _show_error(self, err):
         if isinstance(err, AuthRequiredError):
