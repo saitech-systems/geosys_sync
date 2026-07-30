@@ -155,6 +155,32 @@ def _push_worker(task, client, jobs, cog_flow=False):
     return results
 
 
+def _style_worker(task, client, jobs):
+    """jobs: [{action, style}] - a style push moves no files.
+
+    Same per-layer containment as _push_worker: one layer's failure must not
+    abort the task, because _push_finished is what writes each successful
+    layer's refreshed sync_etag back, and the server folds the style into that
+    etag. Losing the write-back would leave the layer reporting "changed on
+    server" and 409 its next data overwrite on a stale If-Match.
+    """
+    results = []
+    for i, job in enumerate(jobs):
+        action = job['action']
+        try:
+            entry = client.update_style(action.dataset_id, job['style'])
+            results.append({'action': action, 'entry': entry, 'error': None})
+        except AuthRequiredError:
+            raise  # abort the whole task -> finished(exception) -> re-login
+        except ApiError as e:
+            results.append({'action': action, 'entry': None, 'error': e})
+        except Exception as e:  # malformed response, unexpected local error
+            results.append({'action': action, 'entry': None,
+                            'error': ApiError('STYLE_FAILED', str(e))})
+        task.setProgress(100.0 * (i + 1) / len(jobs))
+    return results
+
+
 class SyncDialog(QDialog):
 
     # Token rotations can fire on the QgsTask background thread (the client
@@ -170,6 +196,11 @@ class SyncDialog(QDialog):
         self.session_info = None
         self.projects = []
         self.manifest = []
+        # Populated per table refresh. Empty here so a failed first manifest
+        # load leaves the buttons harmless instead of raising AttributeError:
+        # the tables are empty too, so nothing can be selected anyway.
+        self._pull_actions = []
+        self._push_actions = []
         self._task = None
         self._remember = False  # explicit stay-logged-in opt-in
         self.setWindowTitle('GeosysAI Sync')
@@ -243,9 +274,19 @@ class SyncDialog(QDialog):
         self.push_table = self._make_table(
             ['', 'QGIS layer', 'Kind', 'Action'])
         v.addWidget(self.push_table, 1)
+        buttons = QHBoxLayout()
         self.push_btn = QPushButton('Upload selected')
         self.push_btn.clicked.connect(self._run_push)
-        v.addWidget(self.push_btn)
+        # Symbology alone needs no data transfer, and re-sending a multi-GB
+        # raster to change three colours is not a reasonable way to ask.
+        self.style_btn = QPushButton('Upload style only')
+        self.style_btn.setToolTip(
+            'Send the selected layers\' symbology and labels to the server '
+            'without re-uploading their data.')
+        self.style_btn.clicked.connect(self._run_style_push)
+        buttons.addWidget(self.push_btn, 1)
+        buttons.addWidget(self.style_btn)
+        v.addLayout(buttons)
         return w
 
     @staticmethod
@@ -401,7 +442,10 @@ class SyncDialog(QDialog):
                 return p
         return None
 
-    def _load_manifest(self):
+    def _load_manifest(self, clear_status=True):
+        """clear_status=False when the caller has just written a result the
+        user still needs to read: a push reloads the manifest to refresh the
+        tables, and blanking the label here would wipe its own summary."""
         pid = self._current_project_id()
         if not (self.client and pid):
             return
@@ -410,7 +454,8 @@ class SyncDialog(QDialog):
         except ApiError as e:
             self._show_error(e)
             return
-        self.status_label.setText('')
+        if clear_status:
+            self.status_label.setText('')
         self._refresh_tables()
 
     def _local_facts(self):
@@ -599,7 +644,11 @@ class SyncDialog(QDialog):
                                             sync_plan.sanitize_filename(action.name) + '.gpkg'))
                 else:
                     file_path = layer_export.raster_source_path(layer)
-            except RuntimeError as e:
+            except Exception as e:
+                # Wider than the RuntimeError layer_export raises: style
+                # extraction reads renderer internals and can raise on an
+                # exotic one, and that would otherwise escape into the Qt slot
+                # and kill the whole push before a single byte moved.
                 prep_failed.append('{}: {}'.format(action.name, e))
                 continue
             for w in warnings:
@@ -626,7 +675,11 @@ class SyncDialog(QDialog):
                                                 prep_notes))
 
     def _push_finished(self, results, server, project_id, export_dir=None,
-                       prep_failed=None, prep_notes=None):
+                       prep_failed=None, prep_notes=None,
+                       ok_text='Uploaded {} layer(s).'):
+        """Shared by the data push and the style-only push: both write each
+        successful layer's refreshed sync_etag back and report the same way.
+        `ok_text` takes the count."""
         if export_dir:  # uploads are done; drop the temp GPKG exports
             shutil.rmtree(export_dir, ignore_errors=True)
         project = QgsProject.instance()
@@ -656,8 +709,58 @@ class SyncDialog(QDialog):
                     if entry.cog_status == 'processing' else '')
             ok += 1
             log.info('pushed %s -> dataset %s%s', action.name, entry.id, note)
-        self._finish_status('Uploaded {} layer(s).'.format(ok), failed, notes)
-        self._load_manifest()
+        self._finish_status(ok_text.format(ok), failed, notes)
+        self._load_manifest(clear_status=False)
+
+    # -- style-only push -----------------------------------------------------
+
+    def _run_style_push(self):
+        """Send symbology and labels for the selected layers, no data.
+
+        Only layers already synced to this project qualify; the server's style
+        endpoint needs a dataset to write to.
+        """
+        if not self._require_connection():
+            return
+        chosen = [self._push_actions[r]
+                  for r in self._checked_rows(self.push_table)]
+        if not chosen:
+            self.status_label.setText('Nothing selected.')
+            return
+        actions, skipped = sync_plan.plan_style_push(chosen)
+        failed = ['{}: {}'.format(name, reason) for name, reason in skipped]
+        project = QgsProject.instance()
+        jobs, notes = [], []
+        for action in actions:  # MAIN THREAD: style extraction touches layers
+            layer = project.mapLayer(action.layer_id)
+            if layer is None:
+                failed.append('{}: layer is no longer in the project'
+                              .format(action.name))
+                continue
+            try:
+                style, warnings = style_extract.extract_wire(layer)
+            except Exception as e:
+                # Extraction reads renderer internals and can raise on an
+                # exotic one. Report the layer and carry on: uncontained, this
+                # escapes into the Qt slot and the user sees nothing at all.
+                failed.append('{}: could not read the style ({})'
+                              .format(action.name, e))
+                continue
+            for w in warnings:
+                notes.append('{}: {}'.format(action.name, w))
+            jobs.append({'action': action, 'style': style})
+        if not jobs:
+            self._finish_status('No styles uploaded.', failed, notes)
+            return
+        pid = self._current_project_id()
+        client = self.client  # pin: a mid-task logout must not swap clients
+        server = client.base_url
+        self._start_task(
+            'GeosysAI style push',
+            lambda task, c=client: _style_worker(task, c, jobs),
+            lambda results: self._push_finished(
+                results, server, pid, None, failed, notes,
+                ok_text='Updated the style on {} layer(s).'))
 
     # -- task + status plumbing ----------------------------------------------
 
@@ -667,21 +770,26 @@ class SyncDialog(QDialog):
         self.status_label.setText('Log in first.')
         return False
 
+    def _busy_widgets(self):
+        """Everything that must grey out while a sync task runs. One list, so
+        a new action cannot be added to the dialog and left live by accident -
+        _start_task refuses a second concurrent task anyway."""
+        return (self.pull_btn, self.push_btn, self.style_btn, self.login_btn,
+                self.refresh_btn, self.project_combo)
+
     def _start_task(self, name, worker, on_done):
         if self._task is not None:
             self.status_label.setText('A sync operation is already running.')
             return
         self.progress.setVisible(True)
         self.progress.setValue(0)
-        for widget in (self.pull_btn, self.push_btn, self.login_btn,
-                       self.refresh_btn, self.project_combo):
+        for widget in self._busy_widgets():
             widget.setEnabled(False)
 
         def finished(exception, result=None):
             self._task = None
             self.progress.setVisible(False)
-            for widget in (self.pull_btn, self.push_btn, self.login_btn,
-                           self.refresh_btn, self.project_combo):
+            for widget in self._busy_widgets():
                 widget.setEnabled(True)
             if exception is not None:
                 self._show_error(exception)

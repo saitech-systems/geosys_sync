@@ -58,3 +58,11 @@ The layer's global opacity syncs alongside it, independently of per-class visibi
 Any other raster renderer pushes opacity only and leaves the dataset's symbology on the platform untouched, because there is nowhere to store a colour ramp or a band combination.
 That includes **Singleband pseudocolor**: pushing one reports a note saying the symbology was not uploaded, rather than silently discarding classes the platform may already hold.
 The wire contract behind this is [`docs/qgis-plugin-paletted-raster-styles.md`](docs/qgis-plugin-paletted-raster-styles.md).
+
+## Style-only sync
+
+**Upload style only**, on the push tab, sends the checked layers' symbology and labels and nothing else.
+No data moves, so restyling a multi-gigabyte raster costs one small request rather than a full re-upload.
+
+It applies to vectors and rasters alike, and needs a layer that is already synced to the current project - the server writes the style onto an existing dataset, so a layer that has never been uploaded reports that it must be uploaded first.
+Ownership rules are the same as for an overwrite.

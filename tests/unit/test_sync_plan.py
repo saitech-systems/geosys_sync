@@ -161,3 +161,34 @@ def test_plan_raster_upload_register_payload_carries_artifact_fields():
         'cog_min': 10.0, 'cog_max': 99.5,
         'bounds_3857': [0.0, 1.0, 2.0, 3.0],
     }
+
+
+def _push(mode, dataset_id=None, blocked=None, name='roads'):
+    return sync_plan.PushAction('L1', name, 'vector', mode,
+                                dataset_id=dataset_id, if_match='e0',
+                                blocked_reason=blocked)
+
+
+def test_plan_style_push_takes_only_rows_with_a_dataset_to_style():
+    eligible, skipped = sync_plan.plan_style_push([
+        _push('overwrite', dataset_id=7, name='synced'),
+        _push('create', name='never synced'),
+    ])
+    assert [a.name for a in eligible] == ['synced']
+    assert len(skipped) == 1
+    assert skipped[0][0] == 'never synced'
+    assert 'upload it first' in skipped[0][1]
+
+
+def test_plan_style_push_keeps_the_blocked_reason_it_was_given():
+    _, skipped = sync_plan.plan_style_push([
+        _push('overwrite', dataset_id=7, blocked='You do not own this dataset',
+              name='theirs')])
+    assert skipped == [('theirs', 'You do not own this dataset')]
+
+
+def test_plan_style_push_skips_an_overwrite_with_no_dataset_id():
+    # Defensive: PushAction allows the combination, and PUT
+    # /datasets/None/style would be a nonsense request.
+    eligible, skipped = sync_plan.plan_style_push([_push('overwrite')])
+    assert eligible == [] and len(skipped) == 1

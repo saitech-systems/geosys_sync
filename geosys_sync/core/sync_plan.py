@@ -94,6 +94,28 @@ def plan_push(local_facts, manifest_by_id, capabilities, server_base, project_id
     return actions
 
 
+def plan_style_push(actions):
+    """Split push actions into (eligible, skipped) for a style-only sync.
+
+    A style push targets a dataset that already exists, so only an overwrite
+    row qualifies - a layer never synced to this project has nothing to
+    restyle. `skipped` is [(layer_name, reason)] for the caller to report.
+
+    The server gates PUT /datasets/<id>/style on the same ownership rule as an
+    overwrite, so a row already blocked for that reason stays blocked here.
+    """
+    eligible, skipped = [], []
+    for a in actions:
+        if a.blocked_reason:
+            skipped.append((a.name, a.blocked_reason))
+        elif a.mode != 'overwrite' or not a.dataset_id:
+            skipped.append((a.name, 'not synced to this project yet - '
+                                    'upload it first'))
+        else:
+            eligible.append(a)
+    return eligible, skipped
+
+
 def uses_cog_flow(kind, capabilities):
     """True when a raster push should convert locally and upload to storage.
 
