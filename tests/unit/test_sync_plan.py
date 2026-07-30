@@ -1,5 +1,7 @@
 import os
+from types import SimpleNamespace
 
+from geosys_sync.core import sync_plan
 from geosys_sync.core.models import ManifestEntry
 from geosys_sync.core.sync_plan import (
     LayerFacts, plan_pull, plan_push, sanitize_filename,
@@ -94,3 +96,68 @@ def test_plan_push_unsupported_kind_blocked():
     f = facts(kind=None, name='pointcloud')
     a = plan_push([f], {}, CAPS, SERVER, 7)[0]
     assert a.blocked_reason
+
+
+def test_uses_cog_flow_only_for_rasters_on_a_capable_server():
+    caps = {'can_upload_raster': True, 'can_upload_raster_cog': True}
+    assert sync_plan.uses_cog_flow('raster', caps) is True
+    assert sync_plan.uses_cog_flow('vector', caps) is False
+
+
+def test_uses_cog_flow_is_false_against_an_older_server():
+    """No capability means server-side conversion; the plugin must fall back."""
+    assert sync_plan.uses_cog_flow('raster', {'can_upload_raster': True}) is False
+    assert sync_plan.uses_cog_flow('raster', {}) is False
+    assert sync_plan.uses_cog_flow('raster', None) is False
+
+
+def artifacts(hillshade_path='/work/hs.tif'):
+    """A fake RasterArtifacts - plan_raster_upload only needs attributes,
+    not the real GDAL-produced dataclass (duck-typed, per layer_props.py)."""
+    return SimpleNamespace(
+        cog_path='/work/dsm_COG.tif', original_path='/data/dsm.tif',
+        hillshade_path=hillshade_path, band_count=1, dtype='Float32',
+        cog_min=10.0, cog_max=99.5, bounds_3857=[0.0, 1.0, 2.0, 3.0])
+
+
+def test_plan_raster_upload_always_ships_cog_and_original():
+    files, _, _, _ = sync_plan.plan_raster_upload(
+        'create', None, None, 4326, artifacts())
+    roles = [role for role, _ in files]
+    assert 'cog' in roles and 'original' in roles
+
+
+def test_plan_raster_upload_includes_hillshade_only_when_present():
+    """Guards against a multi-band raster wrongly getting a hillshade role,
+    or a single-band one silently losing it."""
+    with_hs, _, _, _ = sync_plan.plan_raster_upload(
+        'create', None, None, 4326, artifacts(hillshade_path='/work/hs.tif'))
+    without_hs, _, _, _ = sync_plan.plan_raster_upload(
+        'create', None, None, 4326, artifacts(hillshade_path=None))
+    assert 'hillshade_cog' in [role for role, _ in with_hs]
+    assert 'hillshade_cog' not in [role for role, _ in without_hs]
+
+
+def test_plan_raster_upload_create_forwards_neither_id_nor_etag():
+    """A create must never look like an overwrite to the server."""
+    _, _, dataset_id, if_match = sync_plan.plan_raster_upload(
+        'create', 880, 'e0', 4326, artifacts())
+    assert dataset_id is None and if_match is None
+
+
+def test_plan_raster_upload_overwrite_forwards_both_id_and_etag():
+    """An inverted ternary here would silently drop if_match or dataset_id
+    on every raster overwrite, turning it into an unconditional create."""
+    _, _, dataset_id, if_match = sync_plan.plan_raster_upload(
+        'overwrite', 880, 'e0', 4326, artifacts())
+    assert dataset_id == 880 and if_match == 'e0'
+
+
+def test_plan_raster_upload_register_payload_carries_artifact_fields():
+    _, payload, _, _ = sync_plan.plan_raster_upload(
+        'create', None, None, 4326, artifacts())
+    assert payload == {
+        'epsg': 4326, 'band_count': 1, 'dtype': 'Float32',
+        'cog_min': 10.0, 'cog_max': 99.5,
+        'bounds_3857': [0.0, 1.0, 2.0, 3.0],
+    }

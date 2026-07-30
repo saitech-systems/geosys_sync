@@ -92,3 +92,46 @@ def plan_push(local_facts, manifest_by_id, capabilities, server_base, project_id
                 f.layer_id, f.name, f.kind, 'overwrite',
                 dataset_id=f.dataset_id, if_match=f.sync_etag))
     return actions
+
+
+def uses_cog_flow(kind, capabilities):
+    """True when a raster push should convert locally and upload to storage.
+
+    Older servers do not advertise the capability; the plugin then keeps
+    posting the raw GeoTIFF for server-side conversion.
+    """
+    return kind == 'raster' and bool(
+        (capabilities or {}).get('can_upload_raster_cog'))
+
+
+def plan_raster_upload(mode, dataset_id, if_match, epsg, artifacts):
+    """Decide what a converted raster push uploads and registers.
+
+    Duck-typed on `artifacts`: works on any object exposing cog_path,
+    original_path, hillshade_path, band_count, dtype, cog_min, cog_max and
+    bounds_3857 (a real qgis_adapter.cog_export.RasterArtifacts, or a fake
+    in unit tests) - the same pattern layer_props.py uses for QgsMapLayer.
+
+    Returns (files, register_payload, dataset_id, if_match):
+    - `files` is [(role, path)], always 'cog' and 'original', plus
+      'hillshade_cog' only when the artifacts carry a hillshade.
+    - `register_payload` is the dict the server's register endpoint needs.
+    - `dataset_id`/`if_match` are forwarded only for an overwrite; a create
+      gets None for both, so the server never mistakes it for a replace.
+    """
+    files = [('cog', artifacts.cog_path),
+             ('original', artifacts.original_path)]
+    if artifacts.hillshade_path:
+        files.append(('hillshade_cog', artifacts.hillshade_path))
+    register_payload = {
+        'epsg': epsg,
+        'band_count': artifacts.band_count,
+        'dtype': artifacts.dtype,  # informational only; matches desktop app
+        'cog_min': artifacts.cog_min,
+        'cog_max': artifacts.cog_max,
+        'bounds_3857': artifacts.bounds_3857,
+    }
+    overwrite = mode == 'overwrite'
+    return (files, register_payload,
+            dataset_id if overwrite else None,
+            if_match if overwrite else None)

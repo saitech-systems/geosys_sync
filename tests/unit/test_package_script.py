@@ -12,12 +12,12 @@ PLUGIN_DIR = os.path.abspath(
 
 def test_read_version():
     v = read_version(os.path.join(PLUGIN_DIR, 'geosys_sync', 'metadata.txt'))
-    assert v == '0.1.0'
+    assert v == '0.2.0'
 
 
 def test_build_zip(tmp_path):
     out = build_zip(PLUGIN_DIR, str(tmp_path))
-    assert os.path.basename(out) == 'geosys_sync-0.1.0.zip'
+    assert os.path.basename(out) == 'geosys_sync-0.2.0.zip'
     names = zipfile.ZipFile(out).namelist()
     assert 'geosys_sync/metadata.txt' in names
     assert 'geosys_sync/__init__.py' in names

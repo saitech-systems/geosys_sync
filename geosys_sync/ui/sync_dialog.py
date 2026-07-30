@@ -20,9 +20,11 @@ from qgis.PyQt.QtWidgets import (
 from geosys_sync.core import api_client
 from geosys_sync.core.api_client import GeosysClient
 from geosys_sync.core.errors import (
-    ApiError, ApprovalRequiredError, AuthRequiredError,
+    ApiError, ApprovalRequiredError, AuthRequiredError, SyncConflictError,
 )
 from geosys_sync.core import sync_plan
+from geosys_sync.core import upload_session
+from geosys_sync.qgis_adapter import cog_export
 from geosys_sync.qgis_adapter import layer_export, layer_load, layer_props
 from geosys_sync.qgis_adapter import style_extract
 from geosys_sync.core.models import MfaChallenge
@@ -65,14 +67,67 @@ def _pull_worker(task, client, actions):
     return results
 
 
-def _push_worker(task, client, jobs):
+# Share of one job's progress span spent converting before any byte moves.
+_CONVERT_SHARE = 0.4
+_UPLOAD_SHARE = 0.55
+
+
+def _push_raster_cog(task, client, job, base, span):
+    """Convert locally, upload the artifacts to object storage, register.
+
+    Runs on the QgsTask worker thread: it touches GDAL and the filesystem,
+    never QGIS layer objects.
+    """
+    action = job['action']
+    # Coerce once, up front: build_raster_artifacts and plan_raster_upload
+    # both need an int, and plan_raster_upload's copy also goes straight into
+    # the register payload - a bad epsg should fail here, before the upload,
+    # not after it at register time.
+    epsg = int(job['epsg'])
+    work_dir = tempfile.mkdtemp(prefix='geosys_cog_')
+    try:
+        artifacts = cog_export.build_raster_artifacts(
+            job['file_path'], epsg, work_dir,
+            progress=lambda pct: task.setProgress(
+                base + span * _CONVERT_SHARE * pct / 100.0))
+        files, register_payload, dataset_id, if_match = sync_plan.plan_raster_upload(
+            action.mode, action.dataset_id, action.if_match, epsg,
+            artifacts)
+
+        def on_bytes(done, total):
+            if total:
+                task.setProgress(base + span * (
+                    _CONVERT_SHARE + _UPLOAD_SHARE * done / float(total)))
+
+        return upload_session.push_raster_session(
+            client,
+            project_id=job['project_id'],
+            dataset_name=action.name,
+            files=files,
+            register_payload=register_payload,
+            dataset_id=dataset_id,
+            if_match=if_match,
+            style=job['style'],
+            crs_confirmed=job.get('crs_confirmed', False),
+            progress=on_bytes)
+    finally:
+        # Only the work dir: artifacts.original_path may be the user's own
+        # file, which lives outside it and must not be touched.
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _push_worker(task, client, jobs, cog_flow=False):
     """jobs: prepared on the main thread - each is a dict:
     {action, project_id, file_path, style, epsg}"""
     results = []
     for i, job in enumerate(jobs):
         action = job['action']
+        base = 100.0 * i / len(jobs)
+        span = 100.0 / len(jobs)
         try:
-            if action.mode == 'overwrite':
+            if cog_flow and action.kind == 'raster':
+                entry = _push_raster_cog(task, client, job, base, span)
+            elif action.mode == 'overwrite':
                 entry = client.overwrite_dataset(
                     action.dataset_id, job['file_path'], action.kind,
                     epsg=job['epsg'], style=job['style'],
@@ -87,6 +142,15 @@ def _push_worker(task, client, jobs):
             raise  # abort the whole task -> finished(exception) -> re-login
         except ApiError as e:
             results.append({'action': action, 'entry': None, 'error': e})
+        except Exception as e:
+            # Local conversion/planning failure: report it per layer like an
+            # API error rather than killing the rest of the push, so layers
+            # already uploaded still get their sync state written. Covers
+            # more than RuntimeError - e.g. ValueError from plan_parts or
+            # bounds_from_points, TypeError from a bad epsg, KeyError from a
+            # malformed register response.
+            results.append({'action': action, 'entry': None,
+                            'error': ApiError('CONVERSION_FAILED', str(e))})
         task.setProgress(100.0 * (i + 1) / len(jobs))
     return results
 
@@ -548,11 +612,14 @@ class SyncDialog(QDialog):
                 shutil.rmtree(export_dir, ignore_errors=True)
             self._finish_status('Nothing uploaded.', prep_failed)
             return
+        caps = (self.session_info.capabilities if self.session_info else {})
+        cog_flow = any(sync_plan.uses_cog_flow(j['action'].kind, caps)
+                       for j in jobs)
         client = self.client  # pin: a mid-task logout must not swap clients
         server = client.base_url
         self._start_task(
             'GeosysAI push',
-            lambda task, c=client: _push_worker(task, c, jobs),
+            lambda task, c=client, f=cog_flow: _push_worker(task, c, jobs, f),
             lambda results: self._push_finished(results, server, pid,
                                                 export_dir, prep_failed))
 
@@ -566,7 +633,7 @@ class SyncDialog(QDialog):
             action = r['action']
             if r['error'] is not None:
                 hint = (' Pull first, then push again.'
-                        if r['error'].code == 'SYNC_CONFLICT' else '')
+                        if isinstance(r['error'], SyncConflictError) else '')
                 failed.append('{}: {}{}'.format(action.name,
                                                 r['error'].message, hint))
                 continue
