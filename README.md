@@ -67,3 +67,19 @@ No data moves, so restyling a multi-gigabyte raster costs one small request rath
 
 It applies to vectors and rasters alike, and needs a layer that is already synced to the current project - the server writes the style onto an existing dataset, so a layer that has never been uploaded reports that it must be uploaded first.
 Ownership rules are the same as for an overwrite.
+
+## Layer projections
+
+A layer is only pushed once QGIS knows where it sits.
+The upload carries an integer EPSG code, so before anything is exported the plugin checks every layer you have checked on the push tab and opens the QGIS projection picker for any that cannot supply one.
+
+Two cases reach that prompt.
+A layer with no coordinate system at all is the common one - a shapefile with no `.prj`, a delimited-text layer added without a CRS.
+The other is a layer carrying a valid but authority-less projection, typically a custom or raw-WKT CRS on a hand-built VRT: QGIS draws it correctly, but there is no EPSG code to put on the wire, so it is reported separately rather than uploaded as `null`.
+
+Picking a coordinate system sets it on the QGIS layer, exactly as Layer Properties would, and the file on disk is left alone.
+Both push pipelines already write in the layer's declared CRS, so that is enough for the upload to be correct.
+Cancelling the picker skips that one layer and reports it; the rest of the push continues.
+
+This applies to the data push only.
+Pulled layers keep whatever coordinate system their downloaded file declares, and a style-only push moves no data and so never asks.
