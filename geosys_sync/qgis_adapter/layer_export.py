@@ -32,6 +32,27 @@ def layer_epsg(layer):
     return srid or None
 
 
+def crs_problem(crs):
+    """None if this CRS can be put on the wire, else a short human reason.
+
+    The two failures are told apart because only one of them is the user
+    forgetting something: a layer can carry a perfectly valid custom or
+    raw-WKT projection and still be unpushable, because the wire contract
+    carries an integer EPSG and cannot express one without an authority code.
+    """
+    if not crs.isValid():
+        return 'layer has no coordinate reference system'
+    if not crs.postgisSrid():
+        return 'layer CRS has no EPSG code ({})'.format(
+            crs.description() or 'custom')
+    return None
+
+
+def layer_crs_problem(layer):
+    """None if the layer's CRS can be pushed, else a short human reason."""
+    return crs_problem(layer.crs())
+
+
 def export_vector_gpkg(layer, dest_path):
     options = QgsVectorFileWriter.SaveVectorOptions()
     options.driverName = 'GPKG'

@@ -5,7 +5,8 @@ import pytest
 pytestmark = pytest.mark.qgis
 
 from qgis.core import (  # noqa: E402
-    QgsFeature, QgsGeometry, QgsPointXY, QgsProject, QgsVectorLayer,
+    QgsCoordinateReferenceSystem, QgsFeature, QgsGeometry, QgsPointXY,
+    QgsProject, QgsVectorLayer,
 )
 
 from geosys_sync.core.models import ManifestEntry  # noqa: E402
@@ -19,6 +20,11 @@ def point_layer(qgis_app, name='pts'):
     feat['name'] = 'a'
     layer.dataProvider().addFeatures([feat])
     return layer
+
+
+# A CRS QGIS can draw perfectly well but which has no authority code.
+CUSTOM_PROJ = ('+proj=tmerc +lat_0=0 +lon_0=9.123456 +k=1 +x_0=1234567 '
+               '+y_0=0 +ellps=bessel +units=m +no_defs')
 
 
 def test_layer_kind_vector(qgis_app):
@@ -76,3 +82,24 @@ def test_load_pulled_dataset_replace_bad_file_raises(qgis_app, tmp_path):
                 entry, str(tmp_path / 'missing.gpkg'), 'https://s.test', 7)
     finally:
         QgsProject.instance().removeAllMapLayers()
+
+
+def test_layer_crs_problem_none_for_a_normal_epsg_layer(qgis_app):
+    assert layer_export.layer_crs_problem(point_layer(qgis_app)) is None
+
+
+def test_layer_crs_problem_reports_a_missing_crs(qgis_app):
+    layer = point_layer(qgis_app)
+    layer.setCrs(QgsCoordinateReferenceSystem())
+    assert layer_export.layer_crs_problem(layer) == (
+        'layer has no coordinate reference system')
+
+
+def test_layer_crs_problem_reports_an_authority_less_crs(qgis_app):
+    # QGIS knows exactly where this data sits, but there is no EPSG code to
+    # put on the wire, so it is unpushable for a different reason.
+    layer = point_layer(qgis_app)
+    layer.setCrs(QgsCoordinateReferenceSystem.fromProj(CUSTOM_PROJ))
+    assert layer.crs().isValid()      # guard: the proj string really parsed
+    problem = layer_export.layer_crs_problem(layer)
+    assert problem is not None and 'no EPSG code' in problem
