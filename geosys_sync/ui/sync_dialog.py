@@ -10,6 +10,7 @@ import shutil
 import tempfile
 
 from qgis.core import QgsApplication, QgsProject, QgsTask
+from qgis.gui import QgsProjectionSelectionDialog
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
@@ -602,6 +603,58 @@ class SyncDialog(QDialog):
         box.setDefaultButton(QMessageBox.Cancel)
         return box.exec_() == QMessageBox.Ok
 
+    def _ask_layer_crs(self, layer, reason):
+        """Ask for a coordinate system for one layer. Returns the chosen
+        QgsCoordinateReferenceSystem, or None if the user cancelled.
+
+        Its own method so the surrounding push logic stays testable without
+        opening a modal.
+        """
+        dlg = QgsProjectionSelectionDialog(self)
+        dlg.setWindowTitle('Coordinate system for "{}"'.format(layer.name()))
+        dlg.setMessage(
+            'This layer cannot be uploaded as it is: {}.\n'
+            'Choose a coordinate system with an EPSG code to continue.'
+            .format(reason))
+        dlg.setCrs(QgsProject.instance().crs())
+        if dlg.exec_() != QDialog.Accepted:
+            return None
+        return dlg.crs()
+
+    def _resolve_push_crs(self, actions):
+        """Make sure every layer about to be pushed carries an EPSG code,
+        asking the user to pick one where it does not.
+
+        Returns (resolved, failed): resolved is a list of (action, layer)
+        pairs cleared for upload, failed is report strings in the same
+        '<name>: <reason>' shape as the rest of prep_failed. A layer the user
+        declines to fix is dropped rather than aborting the whole push, which
+        matches how every other per-layer failure behaves here.
+        """
+        project = QgsProject.instance()
+        resolved, failed = [], []
+        for action in actions:
+            layer = project.mapLayer(action.layer_id)
+            if layer is None:
+                failed.append('{}: layer is no longer in the project'
+                              .format(action.name))
+                continue
+            problem = layer_export.layer_crs_problem(layer)
+            if problem is not None:
+                crs = self._ask_layer_crs(layer, problem)
+                if crs is None:
+                    failed.append('{}: {}'.format(action.name, problem))
+                    continue
+                # The picker can hand back another authority-less CRS. Check
+                # before applying, so a rejected pick never mutates the layer.
+                picked_problem = layer_export.crs_problem(crs)
+                if picked_problem is not None:
+                    failed.append('{}: {}'.format(action.name, picked_problem))
+                    continue
+                layer.setCrs(crs)
+            resolved.append((action, layer))
+        return resolved, failed
+
     def _run_push(self):
         if not self._require_connection():
             return
@@ -611,6 +664,14 @@ class SyncDialog(QDialog):
         if not actions:
             self.status_label.setText('Nothing selected.')
             return
+        # Before anything else: the upload carries an integer epsg, and a
+        # layer without one otherwise only fails deep inside the worker as a
+        # generic conversion error, after the user committed to the push.
+        resolved, prep_failed = self._resolve_push_crs(actions)
+        if not resolved:
+            self._finish_status('Nothing uploaded.', prep_failed)
+            return
+        actions = [action for action, _ in resolved]
         # Only a NEW raster can be a project's first one; an overwrite targets
         # a dataset that already exists, so the server never re-prompts there.
         crs_confirmed = False
@@ -623,17 +684,10 @@ class SyncDialog(QDialog):
                     return
                 crs_confirmed = True
         pid = self._current_project_id()
-        project = QgsProject.instance()
         jobs = []
-        prep_failed = []  # export/extract failures: these layers do not upload
         prep_notes = []   # style downgrades: the layer uploads, styled worse
         export_dir = None  # created lazily: raster-only pushes need no exports
-        for action in actions:  # MAIN THREAD: exports + style extraction
-            layer = project.mapLayer(action.layer_id)
-            if layer is None:
-                prep_failed.append('{}: layer is no longer in the project'
-                                   .format(action.name))
-                continue
+        for action, layer in resolved:  # MAIN THREAD: exports + style extraction
             try:
                 style, warnings = style_extract.extract_wire(layer)
                 if action.kind == 'vector':
