@@ -187,6 +187,48 @@ def test_resolve_push_crs_rejects_an_authority_less_pick(qgis_app):
         QgsProject.instance().removeAllMapLayers()
 
 
+def test_run_push_carries_the_resolved_epsg_and_reports_a_refusal(qgis_app,
+                                                                  monkeypatch):
+    # The whole point of the pre-pass is what _run_push does with its two
+    # return values, and only this reaches both: the epsg in the job dict and
+    # the skipped layer in the status line.
+    from qgis.core import QgsCoordinateReferenceSystem, QgsProject
+    from geosys_sync.ui import sync_dialog as sd
+
+    good = _memory_layer('good')
+    good.setCrs(QgsCoordinateReferenceSystem())     # user picks for this one
+    bad = _memory_layer('bad')
+    bad.setCrs(QgsCoordinateReferenceSystem())      # user cancels this one
+    captured = {}
+
+    def fake_worker(task, client, jobs, cog_flow):
+        captured['jobs'] = jobs
+        return []                                   # nothing uploaded
+
+    class _Client:                # base_url is all _run_push reads off it
+        base_url = 'https://s.test'
+
+    monkeypatch.setattr(sd, '_push_worker', fake_worker)
+    try:
+        dlg = sd.SyncDialog(iface=None)
+        dlg._push_actions = [_push_action(good), _push_action(bad)]
+        dlg._require_connection = lambda: True
+        dlg._checked_rows = lambda table: [0, 1]
+        dlg._ask_layer_crs = lambda layer, reason: (
+            QgsCoordinateReferenceSystem('EPSG:32632')
+            if layer.name() == 'good' else None)
+        dlg.client = _Client()
+        # Run the task inline so the real job list reaches the real callback.
+        dlg._start_task = lambda name, worker, on_done: on_done(worker(None))
+        dlg._run_push()
+        assert [(j['action'].name, j['epsg']) for j in captured['jobs']] == [
+            ('good', 32632)]
+        assert ('Failed: bad: layer has no coordinate reference system'
+                in dlg.status_label.text())
+    finally:
+        QgsProject.instance().removeAllMapLayers()
+
+
 def test_resolve_push_crs_reports_a_layer_that_left_the_project(qgis_app):
     from qgis.core import QgsProject
     from geosys_sync.ui.sync_dialog import SyncDialog

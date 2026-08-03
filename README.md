@@ -75,10 +75,13 @@ The upload carries an integer EPSG code, so before anything is exported the plug
 
 Two cases reach that prompt.
 A layer with no coordinate system at all is the common one - a shapefile with no `.prj`, a delimited-text layer added without a CRS.
-The other is a layer carrying a valid but authority-less projection, typically a custom or raw-WKT CRS on a hand-built VRT: QGIS draws it correctly, but there is no EPSG code to put on the wire, so it is reported separately rather than uploaded as `null`.
+The other is a layer whose projection QGIS understands but cannot name as an EPSG code: a custom or raw-WKT CRS on a hand-built VRT, or a CRS from another authority such as `ESRI:102008`, `IGNF:LAMB93` or `OGC:CRS84`.
+QGIS draws all of those correctly, but the wire carries an integer EPSG code and none of them can be expressed as one, so they are reported separately rather than uploaded as `null` or under a local id that means something different off this machine.
 
 Picking a coordinate system sets it on the QGIS layer, exactly as Layer Properties would, and the file on disk is left alone.
+It re-labels the layer rather than reprojecting it: the coordinates do not move, only their declared meaning changes, so pick the coordinate system the data is already in.
 Both push pipelines already write in the layer's declared CRS, so that is enough for the upload to be correct.
+The picker opens with nothing selected on purpose, since a pre-filled guess accepted by reflex would upload mislabeled geometry that no later check can catch.
 Cancelling the picker skips that one layer and reports it; the rest of the push continues.
 
 This applies to the data push only.

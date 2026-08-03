@@ -614,12 +614,17 @@ class SyncDialog(QDialog):
         dlg.setWindowTitle('Coordinate system for "{}"'.format(layer.name()))
         dlg.setMessage(
             'This layer cannot be uploaded as it is: {}.\n'
-            'Choose a coordinate system with an EPSG code to continue.'
+            'Choose a coordinate system with an EPSG code to continue.\n'
+            'This re-labels the layer; it does not reproject it, so choose '
+            'the coordinate system the data is already in.'
             .format(reason))
-        dlg.setCrs(QgsProject.instance().crs())
-        if dlg.exec_() != QDialog.Accepted:
-            return None
-        return dlg.crs()
+        # Deliberately left with nothing selected. Pre-seeding a plausible CRS
+        # would make one impatient OK re-label the layer to an answer nobody
+        # chose, and nothing downstream can catch mislabeled geometry.
+        accepted = dlg.exec_() == QDialog.Accepted
+        crs = dlg.crs() if accepted else None
+        dlg.deleteLater()   # parented to the session-lived dialog otherwise
+        return crs
 
     def _resolve_push_crs(self, actions):
         """Make sure every layer about to be pushed carries an EPSG code,
@@ -676,11 +681,10 @@ class SyncDialog(QDialog):
         # a dataset that already exists, so the server never re-prompts there.
         crs_confirmed = False
         if any(a.kind == 'raster' and a.mode != 'overwrite' for a in actions):
-            # Not named `project` - that name is the QgsProject below.
             crs_project = self._project_awaiting_crs_confirmation()
             if crs_project is not None:
                 if not self._confirm_project_crs(crs_project):
-                    self.status_label.setText('Upload cancelled.')
+                    self._finish_status('Upload cancelled.', prep_failed)
                     return
                 crs_confirmed = True
         pid = self._current_project_id()

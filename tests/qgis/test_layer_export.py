@@ -103,3 +103,14 @@ def test_layer_crs_problem_reports_an_authority_less_crs(qgis_app):
     assert layer.crs().isValid()      # guard: the proj string really parsed
     problem = layer_export.layer_crs_problem(layer)
     assert problem is not None and 'no EPSG code' in problem
+
+
+def test_crs_problem_rejects_a_non_epsg_authority(qgis_app):
+    # QGIS hands back a non-zero srs.db srid for ESRI/IGNF/OGC codes too, so
+    # anything gating on that number would wave 102008 onto the wire as if it
+    # were an EPSG code.
+    crs = QgsCoordinateReferenceSystem('ESRI:102008')
+    assert crs.isValid()              # guard: the authority really resolved
+    assert layer_export.crs_epsg(crs) is None
+    problem = layer_export.crs_problem(crs)
+    assert problem is not None and 'no EPSG code' in problem

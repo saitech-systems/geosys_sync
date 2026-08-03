@@ -27,22 +27,39 @@ def raster_source_path(layer):
     return None
 
 
+def crs_epsg(crs):
+    """The CRS's EPSG code as an int, or None when it has no EPSG authority.
+
+    postgisSrid() is not enough: QGIS returns a non-zero srs.db srid for
+    non-EPSG authorities too (ESRI:102008 -> 102008, OGC:CRS84 -> 520003159),
+    and putting one of those on the wire as an EPSG code is silently wrong.
+    """
+    authid = crs.authid() or ''
+    if not authid.upper().startswith('EPSG:'):
+        return None
+    try:
+        return int(authid.split(':', 1)[1])
+    except ValueError:
+        return None
+
+
 def layer_epsg(layer):
-    srid = layer.crs().postgisSrid()
-    return srid or None
+    return crs_epsg(layer.crs())
 
 
 def crs_problem(crs):
     """None if this CRS can be put on the wire, else a short human reason.
 
-    The two failures are told apart because only one of them is the user
-    forgetting something: a layer can carry a perfectly valid custom or
-    raw-WKT projection and still be unpushable, because the wire contract
-    carries an integer EPSG and cannot express one without an authority code.
+    Definitionally "layer_epsg would return None", so the check and the value
+    the push depends on can never disagree. The two failures are told apart
+    because only one of them is the user forgetting something: a layer can
+    carry a perfectly valid custom, raw-WKT or non-EPSG-authority projection
+    and still be unpushable, because the wire contract carries an integer
+    EPSG and cannot express one without an EPSG authority code.
     """
     if not crs.isValid():
         return 'layer has no coordinate reference system'
-    if not crs.postgisSrid():
+    if crs_epsg(crs) is None:
         return 'layer CRS has no EPSG code ({})'.format(
             crs.description() or 'custom')
     return None
