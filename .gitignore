@@ -20,3 +20,6 @@ Thumbs.db
 
 # Git worktrees (superpowers isolated workspaces)
 .worktrees/
+
+# Superpowers scratch: ledgers, task briefs, review packages
+.superpowers/
