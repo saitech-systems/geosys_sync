@@ -330,7 +330,15 @@ class SyncDialog(QDialog):
         if bundle is None:
             self.settings.save_refresh_token(None)
         elif self._remember:  # only persist when the user opted in at login
-            self.settings.save_refresh_token(bundle.refresh_token)
+            if not self.settings.save_refresh_token(bundle.refresh_token):
+                # The authentication database refused (disabled, or the user
+                # dismissed the master-password prompt). The token is stored
+                # nowhere, so stop promising a remembered session rather than
+                # retrying - and prompting - on every rotation.
+                self._remember = False
+                self.status_label.setText(
+                    'Could not save the session in the QGIS authentication '
+                    'database, so you will need to log in again next time.')
 
     def _try_resume(self):
         saved = self.settings.load()

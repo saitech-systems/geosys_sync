@@ -2,14 +2,26 @@
 name=GeosysAI Sync
 qgisMinimumVersion=3.28
 description=Sync vector and raster layers between QGIS and a GeosysAI project (pull with styling, push create-or-overwrite).
-version=0.3.0
+version=0.4.0
 author=SAITECH Systems
 email=yash@saitech-systems.com
-about=Directional sync against the GeosysAI /api/qgis/v1 API. Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with styling; push QGIS layers back, creating new datasets or overwriting previously synced ones. Rasters are converted to Cloud Optimized GeoTIFF locally and uploaded directly to object storage, and single-band raster classes sync as a Paletted / Unique values renderer.
+about=Directional sync against the GeosysAI /api/qgis/v1 API. Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with styling; push QGIS layers back, creating new datasets or overwriting previously synced ones. Rasters are converted to Cloud Optimized GeoTIFF locally and uploaded directly to object storage, and single-band raster classes sync as a Paletted / Unique values renderer. Requires a GeosysAI platform account whose organization has QGIS sync enabled; the plugin does nothing without a GeosysAI server.
+homepage=https://geosys.ai
 tracker=https://github.com/saitech-systems/GeosysAI-Project-Sync-Plugin/issues
 repository=https://github.com/saitech-systems/GeosysAI-Project-Sync-Plugin
+changelog=0.4.0
+    - Remembered sessions are stored in the QGIS authentication database, not in plain settings
+    - Toolbar and plugin-manager icon
+    - Licensed under GPL-2.0-or-later
+    0.3.0
+    - Style-only push, paletted raster symbology both ways, push-side projection prompt
+    0.2.0
+    - Client-side COG conversion and direct-to-storage raster upload
+    0.1.0
+    - Initial release
 tags=sync,geopackage,cog,raster,vector,symbology
 category=Web
-icon=
+icon=icon.svg
+license=GPL-2.0-or-later
 experimental=True
 deprecated=False

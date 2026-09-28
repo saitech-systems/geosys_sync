@@ -1,5 +1,7 @@
 # GeosysAI Sync - QGIS Plugin
 
+Licensed under the GNU General Public License v2.0 or later (`geosys_sync/LICENSE`), as the official QGIS plugin repository requires.
+
 Sync vector and raster layers between QGIS and a GeosysAI project.
 Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with their styling.
 Push QGIS layers back, creating new datasets or overwriting previously synced ones (overwrite-by-identity via the `geosys/dataset_id` layer custom property).
@@ -31,11 +33,15 @@ python scripts/package.py
 ```
 
 Then in QGIS: Plugins > Manage and Install Plugins > Install from ZIP > `dist/geosys_sync-<version>.zip`.
+The same zip is what gets uploaded to plugins.qgis.org; it carries the plugin folder at its root with `metadata.txt`, `LICENSE` and `icon.svg` inside it and no compiled files.
 For a dev loop, symlink `geosys_sync/` into the active profile's `python/plugins/` and use the Plugin Reloader plugin.
 
 ## Notes
 
-- The refresh token is stored in QgsSettings when "Stay logged in" is checked (plaintext; QgsAuthManager migration is a known follow-up).
+- With "Stay logged in" checked, the refresh token is stored in the QGIS authentication database (`QgsAuthManager`, encrypted under the master password), never in plain settings.
+  QGIS asks for the master password the first time a session is remembered; dismissing that prompt means the session is not remembered and the dialog says so.
+  A plain login never opens the authentication database, so it never prompts.
+  A token that a version before 0.4.0 left in plain `QgsSettings` is moved into the authentication database on the next start and the plaintext copy is deleted either way.
 - Server URLs must be `https://`; plain `http://` is only accepted for localhost dev servers, and the same rule applies to download URLs the server hands back.
 - Accounts with MFA enabled are prompted for their authenticator/email code after the password (`/auth/mfa-verify` challenge flow, mirroring the desktop API).
 - `label_min_zoom` round-trips but is not converted to a QGIS scale-visibility rule (matches spec section 7.4).

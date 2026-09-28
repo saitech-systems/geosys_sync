@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- GeosysAI globe mark, taken from the platform's favicon.svg with the
+       SVG filters and animation removed: Qt's SVG renderer (what QGIS uses
+       for toolbar icons) implements SVG Tiny and silently drops both. -->
+  <defs>
+    <linearGradient id="ga" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F6DFF"/>
+      <stop offset="100%" stop-color="#7B93FF"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="60" cy="60" r="42" fill="#4F6DFF" opacity="0.12"/>
+  <circle cx="60" cy="60" r="42" fill="none" stroke="url(#ga)" stroke-width="3" opacity="0.7"/>
+
+  <ellipse cx="60" cy="60" rx="42" ry="14" fill="none" stroke="#7B93FF" stroke-width="1.6" opacity="0.5"/>
+  <ellipse cx="60" cy="60" rx="42" ry="28" fill="none" stroke="#7B93FF" stroke-width="1.6" opacity="0.45"/>
+  <ellipse cx="60" cy="60" rx="14" ry="42" fill="none" stroke="#7B93FF" stroke-width="1.6" opacity="0.5"/>
+  <ellipse cx="60" cy="60" rx="28" ry="42" fill="none" stroke="#7B93FF" stroke-width="1.6" opacity="0.45"/>
+
+  <path d="M60 18 Q40 28, 30 38" fill="none" stroke="#10B981" stroke-width="2.4" opacity="0.8"/>
+  <path d="M60 18 Q80 28, 90 42" fill="none" stroke="#10B981" stroke-width="2.4" opacity="0.8"/>
+  <path d="M30 38 Q32 55, 38 72" fill="none" stroke="#7B93FF" stroke-width="2.2" opacity="0.7"/>
+  <path d="M90 42 Q88 58, 82 75" fill="none" stroke="#7B93FF" stroke-width="2.2" opacity="0.7"/>
+  <path d="M38 72 Q48 85, 60 95" fill="none" stroke="#7B93FF" stroke-width="2.2" opacity="0.65"/>
+  <path d="M82 75 Q72 87, 60 95" fill="none" stroke="#10B981" stroke-width="2.2" opacity="0.65"/>
+  <path d="M30 38 Q38 46, 48 52" fill="none" stroke="#34D399" stroke-width="1.8" opacity="0.7"/>
+  <path d="M90 42 Q82 50, 74 58" fill="none" stroke="#34D399" stroke-width="1.8" opacity="0.7"/>
+  <path d="M48 52 Q60 54, 74 58" fill="none" stroke="#34D399" stroke-width="1.8" opacity="0.8"/>
+
+  <circle cx="60" cy="18" r="6" fill="#10B981"/>
+  <circle cx="30" cy="38" r="5.5" fill="#7B93FF"/>
+  <circle cx="90" cy="42" r="5.5" fill="#7B93FF"/>
+  <circle cx="38" cy="72" r="5" fill="#7B93FF"/>
+  <circle cx="82" cy="75" r="5" fill="#10B981"/>
+  <circle cx="60" cy="95" r="5.5" fill="#7B93FF"/>
+  <circle cx="48" cy="52" r="4" fill="#34D399"/>
+  <circle cx="74" cy="58" r="4" fill="#34D399"/>
+  <circle cx="60" cy="55" r="7" fill="none" stroke="#10B981" stroke-width="2" opacity="0.6"/>
+</svg>
