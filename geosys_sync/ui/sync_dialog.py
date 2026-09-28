@@ -337,7 +337,8 @@ class SyncDialog(QDialog):
                 # retrying - and prompting - on every rotation.
                 self._remember = False
                 self.status_label.setText(tr(
-                    'Could not save the session in the QGIS authentication database, so you will need to log in again next time.'))
+                    'Could not save the session in the QGIS authentication '
+                    'database, so you will need to log in again next time.'))
 
     def _try_resume(self):
         saved = self.settings.load()
@@ -380,7 +381,9 @@ class SyncDialog(QDialog):
             except ApiError as e:
                 if e.status == 404:
                     dlg.show_error(tr(
-                        'This server does not expose the QGIS Sync API. Check the URL, and that the server runs a build with QGIS_SYNC_API_ENABLED=true.'))
+                        'This server does not expose the QGIS Sync API. Check the '
+                        'URL, and that the server runs a build with '
+                        'QGIS_SYNC_API_ENABLED=true.'))
                 else:
                     dlg.show_error(e.message)
                 continue
@@ -601,7 +604,10 @@ class SyncDialog(QDialog):
         box.setTextFormat(Qt.PlainText)
         box.setText(tr('This is the first raster in project "{}".').format(project.name))
         box.setInformativeText(tr(
-            'Raster data is converted into the project coordinate system ({}) when it is uploaded. Completing this upload permanently freezes the project map CRS at that value - it cannot be changed afterwards.\n\nContinue with the upload?').format(crs))
+            'Raster data is converted into the project coordinate system ({}) '
+            'when it is uploaded. Completing this upload permanently freezes '
+            'the project map CRS at that value - it cannot be changed '
+            'afterwards.\n\nContinue with the upload?').format(crs))
         box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         box.setDefaultButton(QMessageBox.Cancel)
         return box.exec_() == QMessageBox.Ok
@@ -616,7 +622,10 @@ class SyncDialog(QDialog):
         dlg = QgsProjectionSelectionDialog(self)
         dlg.setWindowTitle(tr('Coordinate system for "{}"').format(layer.name()))
         dlg.setMessage(tr(
-            'This layer cannot be uploaded as it is: {}.\nChoose a coordinate system with an EPSG code to continue.\nThis re-labels the layer; it does not reproject it, so choose the coordinate system the data is already in.'
+            'This layer cannot be uploaded as it is: {}.\n'
+            'Choose a coordinate system with an EPSG code to continue.\n'
+            'This re-labels the layer; it does not reproject it, so choose '
+            'the coordinate system the data is already in.'
         ).format(reason))
         # Deliberately left with nothing selected. Pre-seeding a plausible CRS
         # would make one impatient OK re-label the layer to an answer nobody
@@ -881,7 +890,8 @@ class SyncDialog(QDialog):
         elif isinstance(err, ApprovalRequiredError):
             QMessageBox.information(
                 self, tr('Approval required'),
-                tr('Project creation requires approval. Submit a request from the GeosysAI web dashboard, or ask your administrator.'))
+                tr('Project creation requires approval. Submit a request from '
+                   'the GeosysAI web dashboard, or ask your administrator.'))
         elif isinstance(err, ApiError):
             self.status_label.setText(err.message)
         else:

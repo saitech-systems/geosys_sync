@@ -21,7 +21,7 @@ import uuid
 log = logging.getLogger(__name__)
 
 _NS = 'geosys_sync/'
-_TOKEN_KEY = 'geosys_sync/refresh_token'
+_TOKEN_KEY = 'geosys_sync/refresh_token'  # nosec B105 - a key name, not a secret
 
 
 class AuthManagerSecrets:

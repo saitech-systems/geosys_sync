@@ -244,7 +244,8 @@ class GeosysClient:
 
     def resume(self, refresh_token):
         """Restore a remembered session: rotate the refresh token, fetch /me."""
-        self.tokens = TokenBundle(access_token='', refresh_token=refresh_token)
+        # '' is a placeholder that refresh_tokens() replaces, not a credential.
+        self.tokens = TokenBundle(access_token='', refresh_token=refresh_token)  # nosec B106
         self.refresh_tokens()
         return self.me()
 

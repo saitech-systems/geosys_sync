@@ -91,13 +91,16 @@ def _from_raster(layer):
             band = _paletted_band(renderer)
             if band != 1:
                 warnings.append(tr(
-                    'Paletted renderer reads band {}; the platform categorises band 1, so the classes may not match its pixel values.'
+                    'Paletted renderer reads band {}; the platform categorises '
+                    'band 1, so the classes may not match its pixel values.'
                 ).format(band))
     elif isinstance(renderer, QgsSingleBandPseudoColorRenderer):
         # Worth naming: a user who ramps a DEM and pushes it would otherwise
         # see no symbology change on the platform and no reason why.
         warnings.append(tr(
-            'Singleband pseudocolor symbology is not supported by the platform and was not uploaded. Use Paletted / Unique values to sync raster classes.'))
+            'Singleband pseudocolor symbology is not supported by the platform '
+            'and was not uploaded. Use Paletted / Unique values to sync raster '
+            'classes.'))
     if warnings:
         wire['style_warnings'] = list(warnings)
     return wire, warnings
