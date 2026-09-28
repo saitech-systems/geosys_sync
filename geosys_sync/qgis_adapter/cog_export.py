@@ -29,6 +29,7 @@ from typing import List, Optional
 import numpy as np
 from osgeo import gdal, osr
 
+from geosys_sync.core.i18n import tr
 from geosys_sync.core import raster_profile
 
 _COG_OPTIONS = ['COMPRESS=DEFLATE', 'BIGTIFF=YES']
@@ -67,7 +68,7 @@ def build_raster_artifacts(source_path, epsg, work_dir, progress=None):
 
         ds = gdal.Open(source_path, gdal.GA_ReadOnly)
         if ds is None:
-            raise RuntimeError('GDAL could not open {}'.format(source_path))
+            raise RuntimeError(tr('GDAL could not open {}').format(source_path))
         band_count = ds.RasterCount
         band = ds.GetRasterBand(1)
         dtype = gdal.GetDataTypeName(band.DataType)

@@ -1,6 +1,7 @@
 """Add or refresh pulled layers in the QGIS project. MAIN THREAD ONLY."""
 from qgis.core import QgsProject, QgsRasterLayer, QgsVectorLayer
 
+from geosys_sync.core.i18n import tr
 from geosys_sync.qgis_adapter import layer_props, style_apply
 
 
@@ -20,7 +21,7 @@ def load_pulled_dataset(entry, path, server_base, project_id):
     if existing is not None:
         existing.setDataSource(path, entry.name, provider)
         if not existing.isValid():
-            raise RuntimeError('Could not open {}'.format(path))
+            raise RuntimeError(tr('Could not open {}').format(path))
         layer = existing
     else:
         if entry.kind == 'vector':
@@ -28,7 +29,7 @@ def load_pulled_dataset(entry, path, server_base, project_id):
         else:
             layer = QgsRasterLayer(path, entry.name, provider)
         if not layer.isValid():
-            raise RuntimeError('Could not open {}'.format(path))
+            raise RuntimeError(tr('Could not open {}').format(path))
         QgsProject.instance().addMapLayer(layer)
     style_apply.apply_wire(layer, entry.style)
     layer_props.write_sync_state(layer, server_base=server_base,

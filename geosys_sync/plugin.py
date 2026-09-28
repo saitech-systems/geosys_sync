@@ -4,6 +4,9 @@ import os
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+from geosys_sync.core.i18n import set_language, tr
+from geosys_sync.qgis_adapter.locale import qgis_language
+
 ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.svg')
 
 
@@ -15,9 +18,11 @@ class GeosysSyncPlugin:
         self.dialog = None
 
     def initGui(self):
+        # Follow the language QGIS itself runs in, decided once per load.
+        set_language(qgis_language())
         self.action = QAction(QIcon(ICON_PATH), 'GeosysAI Sync',
                               self.iface.mainWindow())
-        self.action.setToolTip('Sync layers with a GeosysAI project')
+        self.action.setToolTip(tr('Sync layers with a GeosysAI project'))
         self.action.triggered.connect(self.run)
         self.iface.addToolBarIcon(self.action)
         self.iface.addPluginToMenu('&GeosysAI Sync', self.action)

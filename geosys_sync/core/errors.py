@@ -1,4 +1,5 @@
 """Exception hierarchy for the GeosysAI QGIS-sync client."""
+from geosys_sync.core.i18n import tr
 
 
 class ApiError(Exception):
@@ -72,7 +73,7 @@ def error_from_response(resp):
         # handler) answer {"error": "<string>"} - keep the text as the message.
         envelope = {'message': envelope} if isinstance(envelope, str) else {}
     code = envelope.get('code') or 'HTTP_{}'.format(resp.status_code)
-    message = envelope.get('message') or getattr(resp, 'reason', '') or 'Request failed'
+    message = envelope.get('message') or getattr(resp, 'reason', '') or tr('Request failed')
     detail = dict(envelope.get('detail') or {})
     if code == 'RATE_LIMITED' and not detail.get('retry_after'):
         detail['retry_after'] = resp.headers.get('Retry-After')

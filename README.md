@@ -92,3 +92,10 @@ Cancelling the picker skips that one layer and reports it; the rest of the push 
 
 This applies to the data push only.
 Pulled layers keep whatever coordinate system their downloaded file declares, and a style-only push moves no data and so never asks.
+
+## Languages
+
+The plugin speaks English, French, Spanish, German and Dutch, and follows the language QGIS itself runs in (Settings > Options > General), so it never differs from the menus around it.
+Every user-facing string goes through `tr()` in `geosys_sync/core/i18n.py`; the English text is the key, and `geosys_sync/i18n/<code>.json` holds the other four languages.
+`tests/unit/test_i18n.py` reads the source and fails on any string missing from any language, on a stale entry, or on a translation whose placeholders differ from its key, so a new string cannot ship untranslated.
+Text that comes from the server (error messages, dataset names) is shown as sent.

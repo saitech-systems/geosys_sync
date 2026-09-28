@@ -3,6 +3,7 @@ import os
 
 from qgis.core import QgsMapLayer, QgsProject, QgsVectorFileWriter
 
+from geosys_sync.core.i18n import tr
 from geosys_sync.core.sync_plan import LayerFacts
 from geosys_sync.qgis_adapter import layer_props
 
@@ -58,10 +59,10 @@ def crs_problem(crs):
     EPSG and cannot express one without an EPSG authority code.
     """
     if not crs.isValid():
-        return 'layer has no coordinate reference system'
+        return tr('layer has no coordinate reference system')
     if crs_epsg(crs) is None:
-        return 'layer CRS has no EPSG code ({})'.format(
-            crs.description() or 'custom')
+        return tr('layer CRS has no EPSG code ({})').format(
+            crs.description() or tr('custom'))
     return None
 
 
@@ -77,7 +78,7 @@ def export_vector_gpkg(layer, dest_path):
     result = QgsVectorFileWriter.writeAsVectorFormatV3(
         layer, dest_path, QgsProject.instance().transformContext(), options)
     if result[0] != QgsVectorFileWriter.NoError:
-        raise RuntimeError('GeoPackage export failed: {}'.format(result[1]))
+        raise RuntimeError(tr('GeoPackage export failed: {}').format(result[1]))
     return dest_path
 
 

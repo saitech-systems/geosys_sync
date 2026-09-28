@@ -12,6 +12,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from geosys_sync.core.errors import ApiError, NetworkError
+from geosys_sync.core.i18n import tr
 
 # S3 caps a multipart upload at 10000 parts; the server rejects a manifest
 # that would need more, so fail here with a message the user can act on.
@@ -33,7 +34,7 @@ def plan_parts(file_size, part_size):
     count = max(1, int(math.ceil(file_size / float(part_size))))
     if count > S3_MAX_PARTS:
         raise ValueError(
-            'File needs {} parts; the storage limit is {}'.format(
+            tr('File needs {} parts; the storage limit is {}').format(
                 count, S3_MAX_PARTS))
     return [(i + 1, i * part_size,
              part_size if i < count - 1 else file_size - i * part_size)

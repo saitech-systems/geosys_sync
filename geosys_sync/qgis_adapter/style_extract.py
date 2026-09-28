@@ -5,6 +5,7 @@ from qgis.core import (
     QgsSingleBandPseudoColorRenderer, QgsSingleSymbolRenderer,
 )
 
+from geosys_sync.core.i18n import tr
 from geosys_sync.core import style_wire
 
 
@@ -22,19 +23,19 @@ def extract_wire(layer):
     elif isinstance(renderer, QgsGraduatedSymbolRenderer):
         weighted = [(r.symbol().color().name(), 1.0) for r in renderer.ranges()
                     if r.symbol()]
-        warnings.append('Graduated renderer downgraded to a single color.')
+        warnings.append(tr('Graduated renderer downgraded to a single color.'))
         wire = {'symbology_type': 'single',
                 'style_color': style_wire.dominant_color(weighted),
                 'style_width': 2}
     elif isinstance(renderer, QgsRuleBasedRenderer):
         weighted = [(r.symbol().color().name(), 1.0)
                     for r in renderer.rootRule().children() if r.symbol()]
-        warnings.append('Rule-based renderer downgraded to a single color.')
+        warnings.append(tr('Rule-based renderer downgraded to a single color.'))
         wire = {'symbology_type': 'single',
                 'style_color': style_wire.dominant_color(weighted),
                 'style_width': 2}
     else:
-        warnings.append('{} downgraded to a single color.'.format(
+        warnings.append(tr('{} downgraded to a single color.').format(
             type(renderer).__name__))
         wire = {'symbology_type': 'single',
                 'style_color': style_wire.DEFAULT_COLOR, 'style_width': 2}
@@ -89,16 +90,14 @@ def _from_raster(layer):
             wire.update(fields)
             band = _paletted_band(renderer)
             if band != 1:
-                warnings.append(
-                    'Paletted renderer reads band {}; the platform '
-                    'categorises band 1, so the classes may not match its '
-                    'pixel values.'.format(band))
+                warnings.append(tr(
+                    'Paletted renderer reads band {}; the platform categorises band 1, so the classes may not match its pixel values.'
+                ).format(band))
     elif isinstance(renderer, QgsSingleBandPseudoColorRenderer):
         # Worth naming: a user who ramps a DEM and pushes it would otherwise
         # see no symbology change on the platform and no reason why.
-        warnings.append('Singleband pseudocolor symbology is not supported by '
-                        'the platform and was not uploaded. Use Paletted / '
-                        'Unique values to sync raster classes.')
+        warnings.append(tr(
+            'Singleband pseudocolor symbology is not supported by the platform and was not uploaded. Use Paletted / Unique values to sync raster classes.'))
     if warnings:
         wire['style_warnings'] = list(warnings)
     return wire, warnings

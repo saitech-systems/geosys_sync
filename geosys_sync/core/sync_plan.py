@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from geosys_sync.core.i18n import tr
+
 
 @dataclass(frozen=True)
 class LayerFacts:
@@ -70,12 +72,12 @@ def plan_push(local_facts, manifest_by_id, capabilities, server_base, project_id
         if f.kind not in ('vector', 'raster'):
             actions.append(PushAction(
                 f.layer_id, f.name, f.kind or 'unsupported', 'create',
-                blocked_reason='Only vector and raster layers can sync'))
+                blocked_reason=tr('Only vector and raster layers can sync')))
             continue
         if not capabilities.get('can_upload_{}'.format(f.kind)):
             actions.append(PushAction(
                 f.layer_id, f.name, f.kind, 'create',
-                blocked_reason='Your account has no {} upload permission'.format(f.kind)))
+                blocked_reason=tr('Your account has no {} upload permission').format(tr(f.kind))))
             continue
         same_target = bool(f.dataset_id) and f.server_base == server_base \
             and f.project_id == project_id
@@ -86,7 +88,7 @@ def plan_push(local_facts, manifest_by_id, capabilities, server_base, project_id
         elif not server_entry.can_overwrite:
             actions.append(PushAction(
                 f.layer_id, f.name, f.kind, 'overwrite', dataset_id=f.dataset_id,
-                blocked_reason='You do not own this dataset on the server'))
+                blocked_reason=tr('You do not own this dataset on the server')))
         else:
             actions.append(PushAction(
                 f.layer_id, f.name, f.kind, 'overwrite',
@@ -109,8 +111,7 @@ def plan_style_push(actions):
         if a.blocked_reason:
             skipped.append((a.name, a.blocked_reason))
         elif a.mode != 'overwrite' or not a.dataset_id:
-            skipped.append((a.name, 'not synced to this project yet - '
-                                    'upload it first'))
+            skipped.append((a.name, tr('not synced to this project yet - upload it first')))
         else:
             eligible.append(a)
     return eligible, skipped

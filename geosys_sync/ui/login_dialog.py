@@ -4,12 +4,14 @@ from qgis.PyQt.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
 )
 
+from geosys_sync.core.i18n import tr
+
 
 class LoginDialog(QDialog):
 
     def __init__(self, parent=None, server_base='', username=''):
         super().__init__(parent)
-        self.setWindowTitle('GeosysAI Sync - Login')
+        self.setWindowTitle(tr('GeosysAI Sync - Login'))
         self.setMinimumWidth(420)
         form = QFormLayout(self)
         self.server_edit = QLineEdit(server_base)
@@ -17,15 +19,15 @@ class LoginDialog(QDialog):
         self.user_edit = QLineEdit(username)
         self.pass_edit = QLineEdit()
         self.pass_edit.setEchoMode(QLineEdit.Password)
-        self.remember = QCheckBox('Stay logged in on this machine')
+        self.remember = QCheckBox(tr('Stay logged in on this machine'))
         self.error_label = QLabel('')
         self.error_label.setStyleSheet('color: #c62828')
         self.error_label.setWordWrap(True)
         # Errors echo server-supplied text; never render it as rich text.
         self.error_label.setTextFormat(Qt.PlainText)
-        form.addRow('Server URL', self.server_edit)
-        form.addRow('Username or email', self.user_edit)
-        form.addRow('Password', self.pass_edit)
+        form.addRow(tr('Server URL'), self.server_edit)
+        form.addRow(tr('Username or email'), self.user_edit)
+        form.addRow(tr('Password'), self.pass_edit)
         form.addRow('', self.remember)
         form.addRow(self.error_label)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -48,13 +50,13 @@ class MfaDialog(QDialog):
 
     def __init__(self, parent=None, methods=()):
         super().__init__(parent)
-        self.setWindowTitle('GeosysAI Sync - Verification code')
+        self.setWindowTitle(tr('GeosysAI Sync - Verification code'))
         self.setMinimumWidth(380)
         form = QFormLayout(self)
-        hint = ('sent to your email' if 'email' in (methods or ())
-                else 'from your authenticator app')
         self.hint_label = QLabel(
-            'Enter the 6-digit code {} (or a backup code).'.format(hint))
+            tr('Enter the 6-digit code sent to your email (or a backup code).')
+            if 'email' in (methods or ()) else
+            tr('Enter the 6-digit code from your authenticator app (or a backup code).'))
         self.hint_label.setWordWrap(True)
         self.code_edit = QLineEdit()
         self.code_edit.setPlaceholderText('123456')
@@ -64,7 +66,7 @@ class MfaDialog(QDialog):
         # Errors echo server-supplied text; never render it as rich text.
         self.error_label.setTextFormat(Qt.PlainText)
         form.addRow(self.hint_label)
-        form.addRow('Code', self.code_edit)
+        form.addRow(tr('Code'), self.code_edit)
         form.addRow(self.error_label)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)

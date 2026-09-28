@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import requests
 from requests.adapters import HTTPAdapter
 
+from geosys_sync.core.i18n import tr
 from geosys_sync.core.errors import (
     ApiError, AuthRequiredError, NetworkError, RateLimitedError,
     error_from_response,
@@ -58,16 +59,15 @@ def server_url_problem(url):
     allowed for loopback hosts (local dev servers)."""
     url = (url or '').strip()
     if not (url.startswith('http://') or url.startswith('https://')):
-        return 'Server URL must start with http(s)://'
+        return tr('Server URL must start with http(s)://')
     try:
         host = urlsplit(url).hostname
     except ValueError:
         host = None
     if not host:
-        return 'Server URL has no host name'
+        return tr('Server URL has no host name')
     if url.startswith('http://') and host not in _LOCAL_HOSTS:
-        return ('Plain http:// sends your password unencrypted - use '
-                'https:// (http is only allowed for localhost)')
+        return tr('Plain http:// sends your password unencrypted - use https:// (http is only allowed for localhost)')
     return None
 
 
@@ -179,14 +179,14 @@ class GeosysClient:
         headers.setdefault('X-QGIS-Plugin-Version', PLUGIN_VERSION)
         if auth:
             if not self.tokens or not self.tokens.access_token:
-                raise AuthRequiredError('AUTH_REQUIRED', 'Not logged in')
+                raise AuthRequiredError('AUTH_REQUIRED', tr('Not logged in'))
             headers['Authorization'] = 'Bearer {}'.format(self.tokens.access_token)
         kw.setdefault('timeout', self.timeout)
         try:
             return self._http.request(method, self._url(path), headers=headers, **kw)
         except requests.RequestException as e:
             raise NetworkError('NETWORK_ERROR',
-                               'Could not reach server: {}'.format(
+                               tr('Could not reach server: {}').format(
                                    redact_query(str(e)))) from e
 
     def _request(self, method, path, auth=True, _retried=False, **kw):
@@ -233,12 +233,12 @@ class GeosysClient:
 
     def refresh_tokens(self):
         if not self.tokens or not self.tokens.refresh_token:
-            raise AuthRequiredError('AUTH_REQUIRED', 'No refresh token; log in again')
+            raise AuthRequiredError('AUTH_REQUIRED', tr('No refresh token; log in again'))
         resp = self._raw('POST', '/auth/refresh', auth=False,
                          json={'refresh_token': self.tokens.refresh_token})
         if resp.status_code >= 400:
             err = error_from_response(resp)
-            raise AuthRequiredError(err.code, 'Session expired; log in again',
+            raise AuthRequiredError(err.code, tr('Session expired; log in again'),
                                     status=err.status, detail=err.detail)
         self._set_tokens(TokenBundle.from_json(resp.json()))
 
@@ -313,7 +313,7 @@ class GeosysClient:
         if not (url.startswith('https://')
                 or (url.startswith('http://') and _is_local_host(url))):
             raise ApiError('DOWNLOAD_BLOCKED',
-                           'Refusing non-https download URL from server')
+                           tr('Refusing non-https download URL from server'))
         probe = self._plain_get(url, headers={'Range': 'bytes=0-0'})
         if probe.status_code != 206:
             # Host ignored the Range header; the probe already carries the
@@ -334,11 +334,11 @@ class GeosysClient:
                                   headers=headers)
         except requests.RequestException as e:
             raise NetworkError('NETWORK_ERROR',
-                               'Download failed: {}'.format(
+                               tr('Download failed: {}').format(
                                    redact_query(str(e)))) from e
         if resp.status_code >= 400:
             raise ApiError('DOWNLOAD_FAILED',
-                           'HTTP {} fetching file'.format(resp.status_code),
+                           tr('HTTP {} fetching file').format(resp.status_code),
                            status=resp.status_code)
         return resp
 
@@ -365,7 +365,7 @@ class GeosysClient:
                     if resp.status_code != 206:
                         raise ApiError(
                             'DOWNLOAD_FAILED',
-                            'HTTP {} fetching file'.format(resp.status_code),
+                            tr('HTTP {} fetching file').format(resp.status_code),
                             status=resp.status_code)
                     with open(dest_path, 'r+b') as fh:
                         fh.seek(start)
@@ -381,7 +381,7 @@ class GeosysClient:
                     if attempt:
                         raise NetworkError(
                             'NETWORK_ERROR',
-                            'Download failed: {}'.format(
+                            tr('Download failed: {}').format(
                                 redact_query(str(e)))) from e
 
         parent = os.path.dirname(dest_path)
@@ -521,22 +521,22 @@ class GeosysClient:
         if not (url.startswith('https://')
                 or (url.startswith('http://') and _is_local_host(url))):
             raise ApiError('UPLOAD_BLOCKED',
-                           'Refusing non-https upload URL from server')
+                           tr('Refusing non-https upload URL from server'))
         try:
             with _FileSlice(file_path, offset, length) as body:
                 resp = self._http.put(url, data=body, timeout=self.timeout)
         except requests.RequestException as e:
             raise NetworkError('NETWORK_ERROR',
-                               'Upload failed: {}'.format(
+                               tr('Upload failed: {}').format(
                                    redact_query(str(e)))) from e
         if resp.status_code >= 400:
             raise ApiError('UPLOAD_FAILED',
-                           'HTTP {} uploading part'.format(resp.status_code),
+                           tr('HTTP {} uploading part').format(resp.status_code),
                            status=resp.status_code)
         etag = resp.headers.get('ETag')
         if not etag:
             raise ApiError('UPLOAD_FAILED',
-                           'Storage did not return an ETag for the part')
+                           tr('Storage did not return an ETag for the part'))
         return etag
 
     def complete_file(self, session_id, role, file_index, parts):

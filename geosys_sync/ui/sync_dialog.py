@@ -25,6 +25,7 @@ from geosys_sync.core.errors import (
 )
 from geosys_sync.core import sync_plan
 from geosys_sync.core import upload_session
+from geosys_sync.core.i18n import tr
 from geosys_sync.qgis_adapter import cog_export
 from geosys_sync.qgis_adapter import layer_export, layer_load, layer_props
 from geosys_sync.qgis_adapter import style_extract
@@ -216,29 +217,29 @@ class SyncDialog(QDialog):
         root = QVBoxLayout(self)
 
         header = QHBoxLayout()
-        self.conn_label = QLabel('Not connected')
+        self.conn_label = QLabel(tr('Not connected'))
         # Both labels echo server-supplied text (usernames, error messages);
         # never render it as rich text.
         self.conn_label.setTextFormat(Qt.PlainText)
-        self.login_btn = QPushButton('Log in...')
+        self.login_btn = QPushButton(tr('Log in...'))
         self.login_btn.clicked.connect(self._login_flow)
         header.addWidget(self.conn_label, 1)
         header.addWidget(self.login_btn)
         root.addLayout(header)
 
         proj_row = QHBoxLayout()
-        proj_row.addWidget(QLabel('Project:'))
+        proj_row.addWidget(QLabel(tr('Project:')))
         self.project_combo = QComboBox()
         self.project_combo.currentIndexChanged.connect(self._project_changed)
-        self.refresh_btn = QPushButton('Refresh')
+        self.refresh_btn = QPushButton(tr('Refresh'))
         self.refresh_btn.clicked.connect(self._load_manifest)
         proj_row.addWidget(self.project_combo, 1)
         proj_row.addWidget(self.refresh_btn)
         root.addLayout(proj_row)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_pull_tab(), 'Download from server')
-        self.tabs.addTab(self._build_push_tab(), 'Upload to server')
+        self.tabs.addTab(self._build_pull_tab(), tr('Download from server'))
+        self.tabs.addTab(self._build_push_tab(), tr('Upload to server'))
         self.tabs.currentChanged.connect(lambda _i: self._refresh_tables())
         root.addWidget(self.tabs, 1)
 
@@ -254,7 +255,7 @@ class SyncDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         dest_row = QHBoxLayout()
-        dest_row.addWidget(QLabel('Save to:'))
+        dest_row.addWidget(QLabel(tr('Save to:')))
         self.dest_edit = QLineEdit(self._default_dest_dir())
         browse = QPushButton('...')
         browse.clicked.connect(self._pick_dest_dir)
@@ -262,9 +263,9 @@ class SyncDialog(QDialog):
         dest_row.addWidget(browse)
         v.addLayout(dest_row)
         self.pull_table = self._make_table(
-            ['', 'Dataset', 'Kind', 'Status'])
+            ['', tr('Dataset'), tr('Kind'), tr('Status')])
         v.addWidget(self.pull_table, 1)
-        self.pull_btn = QPushButton('Download selected')
+        self.pull_btn = QPushButton(tr('Download selected'))
         self.pull_btn.clicked.connect(self._run_pull)
         v.addWidget(self.pull_btn)
         return w
@@ -273,17 +274,16 @@ class SyncDialog(QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         self.push_table = self._make_table(
-            ['', 'QGIS layer', 'Kind', 'Action'])
+            ['', tr('QGIS layer'), tr('Kind'), tr('Action')])
         v.addWidget(self.push_table, 1)
         buttons = QHBoxLayout()
-        self.push_btn = QPushButton('Upload selected')
+        self.push_btn = QPushButton(tr('Upload selected'))
         self.push_btn.clicked.connect(self._run_push)
         # Symbology alone needs no data transfer, and re-sending a multi-GB
         # raster to change three colours is not a reasonable way to ask.
-        self.style_btn = QPushButton('Upload style only')
-        self.style_btn.setToolTip(
-            'Send the selected layers\' symbology and labels to the server '
-            'without re-uploading their data.')
+        self.style_btn = QPushButton(tr('Upload style only'))
+        self.style_btn.setToolTip(tr(
+            'Send the selected layers\' symbology and labels to the server without re-uploading their data.'))
         self.style_btn.clicked.connect(self._run_style_push)
         buttons.addWidget(self.push_btn, 1)
         buttons.addWidget(self.style_btn)
@@ -309,7 +309,7 @@ class SyncDialog(QDialog):
 
     def _pick_dest_dir(self):
         chosen = QFileDialog.getExistingDirectory(
-            self, 'Choose download folder', self.dest_edit.text())
+            self, tr('Choose download folder'), self.dest_edit.text())
         if chosen:
             self.dest_edit.setText(chosen)
 
@@ -336,9 +336,8 @@ class SyncDialog(QDialog):
                 # nowhere, so stop promising a remembered session rather than
                 # retrying - and prompting - on every rotation.
                 self._remember = False
-                self.status_label.setText(
-                    'Could not save the session in the QGIS authentication '
-                    'database, so you will need to log in again next time.')
+                self.status_label.setText(tr(
+                    'Could not save the session in the QGIS authentication database, so you will need to log in again next time.'))
 
     def _try_resume(self):
         saved = self.settings.load()
@@ -361,8 +360,8 @@ class SyncDialog(QDialog):
             self.client.logout()  # emits None -> _persist_tokens clears
             self.client = None
             self.session_info = None
-            self.conn_label.setText('Not connected')
-            self.login_btn.setText('Log in...')
+            self.conn_label.setText(tr('Not connected'))
+            self.login_btn.setText(tr('Log in...'))
             self._clear_tables()
             return
         saved = self.settings.load()
@@ -380,16 +379,15 @@ class SyncDialog(QDialog):
                 info = client.login(identifier, password)
             except ApiError as e:
                 if e.status == 404:
-                    dlg.show_error('This server does not expose the QGIS Sync API. '
-                                   'Check the URL, and that the server runs a build '
-                                   'with QGIS_SYNC_API_ENABLED=true.')
+                    dlg.show_error(tr(
+                        'This server does not expose the QGIS Sync API. Check the URL, and that the server runs a build with QGIS_SYNC_API_ENABLED=true.'))
                 else:
                     dlg.show_error(e.message)
                 continue
             if isinstance(info, MfaChallenge):
                 info = self._mfa_flow(client, info)
                 if info is None:
-                    dlg.show_error('Verification cancelled or expired - try again.')
+                    dlg.show_error(tr('Verification cancelled or expired - try again.'))
                     continue
             self.settings.save_connection(server, identifier)
             if not remember:  # drop any token remembered by a prior login
@@ -404,7 +402,7 @@ class SyncDialog(QDialog):
         mfa = MfaDialog(self, methods=challenge.methods)
         while mfa.exec_():
             if not mfa.code():
-                mfa.show_error('Enter the verification code.')
+                mfa.show_error(tr('Enter the verification code.'))
                 continue
             try:
                 return client.verify_mfa(challenge.pending_token, mfa.code())
@@ -416,9 +414,9 @@ class SyncDialog(QDialog):
 
     def _connected(self, info):
         self.session_info = info
-        self.conn_label.setText('Connected to {} as {}'.format(
+        self.conn_label.setText(tr('Connected to {} as {}').format(
             self.client.base_url, info.user.get('username', '?')))
-        self.login_btn.setText('Log out')
+        self.login_btn.setText(tr('Log out'))
         self._load_projects()
 
     # -- projects + manifest --------------------------------------------------
@@ -490,12 +488,12 @@ class SyncDialog(QDialog):
             check.setCheckState(Qt.Checked if action.changed else Qt.Unchecked)
             self.pull_table.setItem(row, 0, check)
             self.pull_table.setItem(row, 1, QTableWidgetItem(action.entry.name))
-            self.pull_table.setItem(row, 2, QTableWidgetItem(action.entry.kind))
-            status = ('up to date' if not action.changed
-                      else 'changed on server' if action.mode == 'replace'
-                      else 'new')
+            self.pull_table.setItem(row, 2, QTableWidgetItem(tr(action.entry.kind)))
+            status = (tr('up to date') if not action.changed
+                      else tr('changed on server') if action.mode == 'replace'
+                      else tr('new'))
             if action.entry.kind == 'raster' and action.entry.cog_status not in ('ready', 'active'):
-                status = 'converting (not downloadable yet)'
+                status = tr('converting (not downloadable yet)')
                 check.setCheckState(Qt.Unchecked)
                 check.setFlags(Qt.NoItemFlags)
             self.pull_table.setItem(row, 3, QTableWidgetItem(status))
@@ -516,11 +514,11 @@ class SyncDialog(QDialog):
             else:
                 check.setFlags(_CHECKABLE)
                 check.setCheckState(Qt.Unchecked)
-                label = ('overwrite dataset #{}'.format(action.dataset_id)
-                         if action.mode == 'overwrite' else 'create new dataset')
+                label = (tr('overwrite dataset #{}').format(action.dataset_id)
+                         if action.mode == 'overwrite' else tr('create new dataset'))
             self.push_table.setItem(row, 0, check)
             self.push_table.setItem(row, 1, QTableWidgetItem(action.name))
-            self.push_table.setItem(row, 2, QTableWidgetItem(action.kind))
+            self.push_table.setItem(row, 2, QTableWidgetItem(tr(action.kind)))
             self.push_table.setItem(row, 3, QTableWidgetItem(label))
 
     def _checked_rows(self, table):
@@ -539,7 +537,7 @@ class SyncDialog(QDialog):
         actions = [self._pull_actions[r]
                    for r in self._checked_rows(self.pull_table)]
         if not actions:
-            self.status_label.setText('Nothing selected.')
+            self.status_label.setText(tr('Nothing selected.'))
             return
         os.makedirs(self.dest_edit.text() or self._default_dest_dir(),
                     exist_ok=True)
@@ -547,7 +545,7 @@ class SyncDialog(QDialog):
         client = self.client  # pin: a mid-task logout must not swap clients
         server = client.base_url
         self._start_task(
-            'GeosysAI pull',
+            tr('GeosysAI download'),
             lambda task, c=client: _pull_worker(task, c, actions),
             lambda results: self._pull_finished(results, server, pid))
 
@@ -567,7 +565,7 @@ class SyncDialog(QDialog):
                 ok += 1
             except RuntimeError as e:
                 failed.append('{}: {}'.format(entry.name, e))
-        self._finish_status('Downloaded {} layer(s).'.format(ok), failed)
+        self._finish_status(tr('Downloaded {} layer(s).').format(ok), failed)
         self._refresh_tables()
 
     # -- push ----------------------------------------------------------------
@@ -595,18 +593,15 @@ class SyncDialog(QDialog):
         """Ask before the FIRST raster goes into a project: completing the
         upload freezes its map CRS for good. Returns True to proceed."""
         crs = ('EPSG:{}'.format(project.effective_epsg_code)
-               if project.effective_epsg_code else 'its current coordinate system')
+               if project.effective_epsg_code else tr('its current coordinate system'))
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle('Confirm project coordinate system')
+        box.setWindowTitle(tr('Confirm project coordinate system'))
         # project.name is server-supplied text - never render it as rich text.
         box.setTextFormat(Qt.PlainText)
-        box.setText('This is the first raster in project "{}".'.format(project.name))
-        box.setInformativeText(
-            'Raster data is converted into the project coordinate system ({}) '
-            'when it is uploaded. Completing this upload permanently freezes '
-            'the project map CRS at that value - it cannot be changed '
-            'afterwards.\n\nContinue with the upload?'.format(crs))
+        box.setText(tr('This is the first raster in project "{}".').format(project.name))
+        box.setInformativeText(tr(
+            'Raster data is converted into the project coordinate system ({}) when it is uploaded. Completing this upload permanently freezes the project map CRS at that value - it cannot be changed afterwards.\n\nContinue with the upload?').format(crs))
         box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         box.setDefaultButton(QMessageBox.Cancel)
         return box.exec_() == QMessageBox.Ok
@@ -619,13 +614,10 @@ class SyncDialog(QDialog):
         opening a modal.
         """
         dlg = QgsProjectionSelectionDialog(self)
-        dlg.setWindowTitle('Coordinate system for "{}"'.format(layer.name()))
-        dlg.setMessage(
-            'This layer cannot be uploaded as it is: {}.\n'
-            'Choose a coordinate system with an EPSG code to continue.\n'
-            'This re-labels the layer; it does not reproject it, so choose '
-            'the coordinate system the data is already in.'
-            .format(reason))
+        dlg.setWindowTitle(tr('Coordinate system for "{}"').format(layer.name()))
+        dlg.setMessage(tr(
+            'This layer cannot be uploaded as it is: {}.\nChoose a coordinate system with an EPSG code to continue.\nThis re-labels the layer; it does not reproject it, so choose the coordinate system the data is already in.'
+        ).format(reason))
         # Deliberately left with nothing selected. Pre-seeding a plausible CRS
         # would make one impatient OK re-label the layer to an answer nobody
         # chose, and nothing downstream can catch mislabeled geometry.
@@ -649,8 +641,8 @@ class SyncDialog(QDialog):
         for action in actions:
             layer = project.mapLayer(action.layer_id)
             if layer is None:
-                failed.append('{}: layer is no longer in the project'
-                              .format(action.name))
+                failed.append('{}: {}'.format(
+                    action.name, tr('layer is no longer in the project')))
                 continue
             problem = layer_export.layer_crs_problem(layer)
             if problem is not None:
@@ -675,14 +667,14 @@ class SyncDialog(QDialog):
                    for r in self._checked_rows(self.push_table)]
         actions = [a for a in actions if not a.blocked_reason]
         if not actions:
-            self.status_label.setText('Nothing selected.')
+            self.status_label.setText(tr('Nothing selected.'))
             return
         # Before anything else: the upload carries an integer epsg, and a
         # layer without one otherwise only fails deep inside the worker as a
         # generic conversion error, after the user committed to the push.
         resolved, prep_failed = self._resolve_push_crs(actions)
         if not resolved:
-            self._finish_status('Nothing uploaded.', prep_failed)
+            self._finish_status(tr('Nothing uploaded.'), prep_failed)
             return
         actions = [action for action, _ in resolved]
         # Only a NEW raster can be a project's first one; an overwrite targets
@@ -692,7 +684,7 @@ class SyncDialog(QDialog):
             crs_project = self._project_awaiting_crs_confirmation()
             if crs_project is not None:
                 if not self._confirm_project_crs(crs_project):
-                    self._finish_status('Upload cancelled.', prep_failed)
+                    self._finish_status(tr('Upload cancelled.'), prep_failed)
                     return
                 crs_confirmed = True
         pid = self._current_project_id()
@@ -726,7 +718,7 @@ class SyncDialog(QDialog):
         if not jobs:
             if export_dir:
                 shutil.rmtree(export_dir, ignore_errors=True)
-            self._finish_status('Nothing uploaded.', prep_failed, prep_notes)
+            self._finish_status(tr('Nothing uploaded.'), prep_failed, prep_notes)
             return
         caps = (self.session_info.capabilities if self.session_info else {})
         cog_flow = any(sync_plan.uses_cog_flow(j['action'].kind, caps)
@@ -734,7 +726,7 @@ class SyncDialog(QDialog):
         client = self.client  # pin: a mid-task logout must not swap clients
         server = client.base_url
         self._start_task(
-            'GeosysAI push',
+            tr('GeosysAI upload'),
             lambda task, c=client, f=cog_flow: _push_worker(task, c, jobs, f),
             lambda results: self._push_finished(results, server, pid,
                                                 export_dir, prep_failed,
@@ -742,10 +734,12 @@ class SyncDialog(QDialog):
 
     def _push_finished(self, results, server, project_id, export_dir=None,
                        prep_failed=None, prep_notes=None,
-                       ok_text='Uploaded {} layer(s).'):
+                       ok_text=None):
         """Shared by the data push and the style-only push: both write each
         successful layer's refreshed sync_etag back and report the same way.
         `ok_text` takes the count."""
+        if ok_text is None:  # not a default arg: the language is set at load, after import
+            ok_text = tr('Uploaded {} layer(s).')
         if export_dir:  # uploads are done; drop the temp GPKG exports
             shutil.rmtree(export_dir, ignore_errors=True)
         project = QgsProject.instance()
@@ -754,7 +748,7 @@ class SyncDialog(QDialog):
         for r in results:
             action = r['action']
             if r['error'] is not None:
-                hint = (' Pull first, then push again.'
+                hint = (' ' + tr('Download it first, then upload again.')
                         if isinstance(r['error'], SyncConflictError) else '')
                 failed.append('{}: {}{}'.format(action.name,
                                                 r['error'].message, hint))
@@ -791,7 +785,7 @@ class SyncDialog(QDialog):
         chosen = [self._push_actions[r]
                   for r in self._checked_rows(self.push_table)]
         if not chosen:
-            self.status_label.setText('Nothing selected.')
+            self.status_label.setText(tr('Nothing selected.'))
             return
         actions, skipped = sync_plan.plan_style_push(chosen)
         failed = ['{}: {}'.format(name, reason) for name, reason in skipped]
@@ -800,8 +794,8 @@ class SyncDialog(QDialog):
         for action in actions:  # MAIN THREAD: style extraction touches layers
             layer = project.mapLayer(action.layer_id)
             if layer is None:
-                failed.append('{}: layer is no longer in the project'
-                              .format(action.name))
+                failed.append('{}: {}'.format(
+                    action.name, tr('layer is no longer in the project')))
                 continue
             try:
                 style, warnings = style_extract.extract_wire(layer)
@@ -809,31 +803,31 @@ class SyncDialog(QDialog):
                 # Extraction reads renderer internals and can raise on an
                 # exotic one. Report the layer and carry on: uncontained, this
                 # escapes into the Qt slot and the user sees nothing at all.
-                failed.append('{}: could not read the style ({})'
-                              .format(action.name, e))
+                failed.append('{}: {}'.format(
+                    action.name, tr('could not read the style ({})').format(e)))
                 continue
             for w in warnings:
                 notes.append('{}: {}'.format(action.name, w))
             jobs.append({'action': action, 'style': style})
         if not jobs:
-            self._finish_status('No styles uploaded.', failed, notes)
+            self._finish_status(tr('No styles uploaded.'), failed, notes)
             return
         pid = self._current_project_id()
         client = self.client  # pin: a mid-task logout must not swap clients
         server = client.base_url
         self._start_task(
-            'GeosysAI style push',
+            tr('GeosysAI style upload'),
             lambda task, c=client: _style_worker(task, c, jobs),
             lambda results: self._push_finished(
                 results, server, pid, None, failed, notes,
-                ok_text='Updated the style on {} layer(s).'))
+                ok_text=tr('Updated the style on {} layer(s).')))
 
     # -- task + status plumbing ----------------------------------------------
 
     def _require_connection(self):
         if self.client and self.client.tokens:
             return True
-        self.status_label.setText('Log in first.')
+        self.status_label.setText(tr('Log in first.'))
         return False
 
     def _busy_widgets(self):
@@ -845,7 +839,7 @@ class SyncDialog(QDialog):
 
     def _start_task(self, name, worker, on_done):
         if self._task is not None:
-            self.status_label.setText('A sync operation is already running.')
+            self.status_label.setText(tr('A sync operation is already running.'))
             return
         self.progress.setVisible(True)
         self.progress.setValue(0)
@@ -874,21 +868,20 @@ class SyncDialog(QDialog):
         so a warning never reads as a layer that did not upload."""
         parts = [ok_text]
         if failed:
-            parts.append('Failed: {}'.format(' | '.join(failed)))
+            parts.append(tr('Failed: {}').format(' | '.join(failed)))
         if notes:
-            parts.append('Note: {}'.format(' | '.join(notes)))
+            parts.append(tr('Note: {}').format(' | '.join(notes)))
         self.status_label.setText(' '.join(parts))
 
     def _show_error(self, err):
         if isinstance(err, AuthRequiredError):
-            self.status_label.setText('Session expired - please log in again.')
-            self.login_btn.setText('Log in...')
+            self.status_label.setText(tr('Session expired - please log in again.'))
+            self.login_btn.setText(tr('Log in...'))
             self.client = None
         elif isinstance(err, ApprovalRequiredError):
             QMessageBox.information(
-                self, 'Approval required',
-                'Project creation requires approval. Submit a request from '
-                'the GeosysAI web dashboard, or ask your administrator.')
+                self, tr('Approval required'),
+                tr('Project creation requires approval. Submit a request from the GeosysAI web dashboard, or ask your administrator.'))
         elif isinstance(err, ApiError):
             self.status_label.setText(err.message)
         else:

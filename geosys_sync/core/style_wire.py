@@ -7,6 +7,8 @@ widths are millimetres; mm_to_px/px_to_mm convert at 96 dpi.
 import math
 import re
 
+from geosys_sync.core.i18n import tr
+
 NULL_CATEGORY_KEY = '(null)'
 # Sentinel that symbology_attribute carries for a paletted raster: "categorised
 # by the raw value of band 1". It is not a field name and must never be
@@ -170,8 +172,8 @@ def paletted_wire(classes):
             'visible': bool(cls.get('visible', True))}
     warnings = []
     if dropped:
-        warnings.append('{} raster class(es) without a finite pixel value '
-                        'were not uploaded.'.format(dropped))
+        warnings.append(tr('{} raster class(es) without a finite pixel value were not uploaded.')
+                        .format(dropped))
     return {'symbology_type': 'categorized',
             'symbology_attribute': PIXEL_VALUE_ATTRIBUTE,
             'symbology_categories': categories}, warnings
