@@ -35,7 +35,7 @@ from geosys_sync.ui.login_dialog import LoginDialog, MfaDialog
 
 log = logging.getLogger(__name__)
 
-_CHECKABLE = Qt.ItemIsUserCheckable | Qt.ItemIsEnabled
+_CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ class SyncDialog(QDialog):
         self.conn_label = QLabel(tr('Not connected'))
         # Both labels echo server-supplied text (usernames, error messages);
         # never render it as rich text.
-        self.conn_label.setTextFormat(Qt.PlainText)
+        self.conn_label.setTextFormat(Qt.TextFormat.PlainText)
         self.login_btn = QPushButton(tr('Log in...'))
         self.login_btn.clicked.connect(self._login_flow)
         header.addWidget(self.conn_label, 1)
@@ -248,7 +248,7 @@ class SyncDialog(QDialog):
         root.addWidget(self.progress)
         self.status_label = QLabel('')
         self.status_label.setWordWrap(True)
-        self.status_label.setTextFormat(Qt.PlainText)
+        self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         root.addWidget(self.status_label)
 
     def _build_pull_tab(self):
@@ -295,8 +295,8 @@ class SyncDialog(QDialog):
         table = QTableWidget(0, len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.verticalHeader().setVisible(False)
-        table.setSelectionMode(QAbstractItemView.NoSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.horizontalHeader().setStretchLastSection(True)
         table.setColumnWidth(0, 28)
         table.setColumnWidth(1, 280)
@@ -368,7 +368,7 @@ class SyncDialog(QDialog):
         saved = self.settings.load()
         dlg = LoginDialog(self, server_base=saved.get('server_base') or '',
                           username=saved.get('username') or '')
-        while dlg.exec_():
+        while dlg.exec():
             server, identifier, password, remember = dlg.values()
             problem = api_client.server_url_problem(server)
             if problem:
@@ -403,7 +403,7 @@ class SyncDialog(QDialog):
         """Prompt for the second-factor code until it verifies, the user
         cancels, or the pending token dies. Returns SessionInfo or None."""
         mfa = MfaDialog(self, methods=challenge.methods)
-        while mfa.exec_():
+        while mfa.exec():
             if not mfa.code():
                 mfa.show_error(tr('Enter the verification code.'))
                 continue
@@ -488,7 +488,7 @@ class SyncDialog(QDialog):
         for row, action in enumerate(actions):
             check = QTableWidgetItem()
             check.setFlags(_CHECKABLE)
-            check.setCheckState(Qt.Checked if action.changed else Qt.Unchecked)
+            check.setCheckState(Qt.CheckState.Checked if action.changed else Qt.CheckState.Unchecked)
             self.pull_table.setItem(row, 0, check)
             self.pull_table.setItem(row, 1, QTableWidgetItem(action.entry.name))
             self.pull_table.setItem(row, 2, QTableWidgetItem(tr(action.entry.kind)))
@@ -497,8 +497,8 @@ class SyncDialog(QDialog):
                       else tr('new'))
             if action.entry.kind == 'raster' and action.entry.cog_status not in ('ready', 'active'):
                 status = tr('converting (not downloadable yet)')
-                check.setCheckState(Qt.Unchecked)
-                check.setFlags(Qt.NoItemFlags)
+                check.setCheckState(Qt.CheckState.Unchecked)
+                check.setFlags(Qt.ItemFlag.NoItemFlags)
             self.pull_table.setItem(row, 3, QTableWidgetItem(status))
 
     def _populate_push_table(self):
@@ -512,11 +512,11 @@ class SyncDialog(QDialog):
         for row, action in enumerate(actions):
             check = QTableWidgetItem()
             if action.blocked_reason:
-                check.setFlags(Qt.NoItemFlags)
+                check.setFlags(Qt.ItemFlag.NoItemFlags)
                 label = action.blocked_reason
             else:
                 check.setFlags(_CHECKABLE)
-                check.setCheckState(Qt.Unchecked)
+                check.setCheckState(Qt.CheckState.Unchecked)
                 label = (tr('overwrite dataset #{}').format(action.dataset_id)
                          if action.mode == 'overwrite' else tr('create new dataset'))
             self.push_table.setItem(row, 0, check)
@@ -528,7 +528,7 @@ class SyncDialog(QDialog):
         rows = []
         for row in range(table.rowCount()):
             item = table.item(row, 0)
-            if item and item.checkState() == Qt.Checked:
+            if item and item.checkState() == Qt.CheckState.Checked:
                 rows.append(row)
         return rows
 
@@ -598,19 +598,19 @@ class SyncDialog(QDialog):
         crs = ('EPSG:{}'.format(project.effective_epsg_code)
                if project.effective_epsg_code else tr('its current coordinate system'))
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Warning)
+        box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(tr('Confirm project coordinate system'))
         # project.name is server-supplied text - never render it as rich text.
-        box.setTextFormat(Qt.PlainText)
+        box.setTextFormat(Qt.TextFormat.PlainText)
         box.setText(tr('This is the first raster in project "{}".').format(project.name))
         box.setInformativeText(tr(
             'Raster data is converted into the project coordinate system ({}) '
             'when it is uploaded. Completing this upload permanently freezes '
             'the project map CRS at that value - it cannot be changed '
             'afterwards.\n\nContinue with the upload?').format(crs))
-        box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-        box.setDefaultButton(QMessageBox.Cancel)
-        return box.exec_() == QMessageBox.Ok
+        box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Ok
 
     def _ask_layer_crs(self, layer, reason):
         """Ask for a coordinate system for one layer. Returns the chosen
@@ -630,7 +630,7 @@ class SyncDialog(QDialog):
         # Deliberately left with nothing selected. Pre-seeding a plausible CRS
         # would make one impatient OK re-label the layer to an answer nobody
         # chose, and nothing downstream can catch mislabeled geometry.
-        accepted = dlg.exec_() == QDialog.Accepted
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
         crs = dlg.crs() if accepted else None
         dlg.deleteLater()   # parented to the session-lived dialog otherwise
         return crs

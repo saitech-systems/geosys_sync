@@ -2,14 +2,16 @@
 name=GeosysAI Sync
 qgisMinimumVersion=3.28
 description=Sync vector and raster layers between QGIS and a GeosysAI project (pull with styling, push create-or-overwrite).
-version=0.4.0
+version=0.4.1
 author=GeosysAI
 email=yash@geosys.ai
 about=Directional sync against the GeosysAI /api/qgis/v1 API. Pull server datasets into QGIS (vector GeoPackage, raster COG GeoTIFF) with styling; push QGIS layers back, creating new datasets or overwriting previously synced ones. Rasters are converted to Cloud Optimized GeoTIFF locally and uploaded directly to object storage, and single-band raster classes sync as a Paletted / Unique values renderer. Requires a GeosysAI platform account whose organization has QGIS sync enabled; the plugin does nothing without a GeosysAI server. Available in English, French, Spanish, German and Dutch, following the QGIS interface language.
 homepage=https://geosys.ai
 tracker=https://github.com/saitech-systems/geosys_sync/issues
 repository=https://github.com/saitech-systems/geosys_sync
-changelog=0.4.0
+changelog=0.4.1
+    - Qt6-ready: scoped Qt/QGIS enums and exec(); secrets-scanner baseline for the "Password" label
+    0.4.0
     - Remembered sessions are stored in the QGIS authentication database, not in plain settings
     - Toolbar and plugin-manager icon
     - Licensed under GPL-2.0-or-later

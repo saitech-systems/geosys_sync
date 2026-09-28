@@ -11,16 +11,16 @@ _RASTER_EXTS = ('.tif', '.tiff', '.geotiff')
 
 
 def layer_kind(layer):
-    if layer.type() == QgsMapLayer.VectorLayer:
+    if layer.type() == QgsMapLayer.LayerType.VectorLayer:
         return 'vector'
-    if layer.type() == QgsMapLayer.RasterLayer and raster_source_path(layer):
+    if layer.type() == QgsMapLayer.LayerType.RasterLayer and raster_source_path(layer):
         return 'raster'
     return None
 
 
 def raster_source_path(layer):
     """Local GeoTIFF path behind a raster layer, or None (WMS/XYZ/VRT etc.)."""
-    if layer.type() != QgsMapLayer.RasterLayer or layer.providerType() != 'gdal':
+    if layer.type() != QgsMapLayer.LayerType.RasterLayer or layer.providerType() != 'gdal':
         return None
     path = layer.source().split('|')[0]
     if os.path.isfile(path) and path.lower().endswith(_RASTER_EXTS):
@@ -77,7 +77,7 @@ def export_vector_gpkg(layer, dest_path):
     options.layerName = os.path.splitext(os.path.basename(dest_path))[0]
     result = QgsVectorFileWriter.writeAsVectorFormatV3(
         layer, dest_path, QgsProject.instance().transformContext(), options)
-    if result[0] != QgsVectorFileWriter.NoError:
+    if result[0] != QgsVectorFileWriter.WriterError.NoError:
         raise RuntimeError(tr('GeoPackage export failed: {}').format(result[1]))
     return dest_path
 

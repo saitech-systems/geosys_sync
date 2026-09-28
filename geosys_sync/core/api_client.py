@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 API_PREFIX = '/api/qgis/v1'
 
 # Sent on every request; the server records it as the session's app_version.
-PLUGIN_VERSION = '0.4.0'
+PLUGIN_VERSION = '0.4.1'
 
 # Parallel ranged downloads: part size, worker count, and the minimum file
 # size worth splitting. A single TCP stream to a far-away S3 region is

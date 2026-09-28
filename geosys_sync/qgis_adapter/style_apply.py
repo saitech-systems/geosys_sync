@@ -11,7 +11,7 @@ from geosys_sync.core import style_wire
 
 def apply_wire(layer, wire):
     wire = wire or {}
-    if layer.type() == QgsMapLayer.RasterLayer:
+    if layer.type() == QgsMapLayer.LayerType.RasterLayer:
         _apply_raster(layer, wire)
         return
 

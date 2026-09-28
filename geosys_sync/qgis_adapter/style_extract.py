@@ -11,7 +11,7 @@ from geosys_sync.core import style_wire
 
 def extract_wire(layer):
     """Return (wire_dict, warnings) for a QGIS map layer."""
-    if layer.type() == QgsMapLayer.RasterLayer:
+    if layer.type() == QgsMapLayer.LayerType.RasterLayer:
         return _from_raster(layer)
 
     warnings = []
